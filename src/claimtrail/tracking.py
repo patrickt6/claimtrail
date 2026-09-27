@@ -281,7 +281,7 @@ def tracked(
     so the offending computation never lands in the store. A failed
     warning-severity property logs and writes. The check functions are
     free to use Hypothesis internally for property-based random-input
-    testing; see :mod:`claimtrail.properties_qnumbers` for the project-
+    testing; see :mod:`claimtrail.contrib.qnumbers` for the project-
     specific property declarations.
     """
     data_file_names = tuple(data_files or ())

@@ -27,7 +27,7 @@ from claimtrail import (
     ClaimtrailPropertyWarning,
     tracked,
 )
-from claimtrail.properties_qnumbers import (
+from claimtrail.contrib.qnumbers import (
     check_bidegree_conformity,
     check_gap_theorem,
     check_kernel_empty_for_cube_root,

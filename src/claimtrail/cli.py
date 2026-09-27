@@ -571,7 +571,7 @@ def _qnumbers_property_registry() -> dict[str, list[Property]]:
     if _QNUMBERS_REGISTRY is not None:
         return _QNUMBERS_REGISTRY
     try:
-        from .properties_qnumbers import (
+        from .contrib.qnumbers import (
             kernel_search_properties,
             q_real_truncated_properties,
             gap_theorem_scan_properties,

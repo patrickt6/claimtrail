@@ -17,11 +17,11 @@ property-based-testing library for Python. Property check functions are free
 to use Hypothesis internally for metamorphic relations across random inputs
 (via ``hypothesis.given`` and ``hypothesis.strategies``); this module does
 not require it. The property-tests module
-(:mod:`claimtrail.properties_qnumbers`) does use Hypothesis for the MGO recursion
+(:mod:`claimtrail.contrib.qnumbers`) does use Hypothesis for the MGO recursion
 and palindromicity checks.
 
 This module is a primitive layer; the project-specific properties live in
-:mod:`claimtrail.properties_qnumbers`.
+:mod:`claimtrail.contrib.qnumbers`.
 """
 from __future__ import annotations
 

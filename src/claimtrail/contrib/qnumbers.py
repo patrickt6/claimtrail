@@ -28,7 +28,7 @@ import math
 from fractions import Fraction
 from typing import Any
 
-from .properties import Property, PropertyResult
+from ..properties import Property, PropertyResult
 
 
 # ---------------------------------------------------------------------------
