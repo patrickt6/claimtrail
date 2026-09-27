@@ -327,7 +327,7 @@ def _summary_line(report: ReportAudit) -> str:
 def _render_text(report: ReportAudit) -> str:
     lines = [f"claimtrail audit-report {report.path}", f"  {_summary_line(report) or 'nothing linked'}", ""]
     for e in report.entries:
-        ids = ",".join(i[:12] for i in e.ids) or "-"
+        ids = ",".join(_short(i) for i in e.ids) or "-"
         basis = f"  basis={e.basis}" if e.basis else ""
         verified = f"  verified={e.verified}" if e.verified else ""
         lines.append(f"{e.status:<9} line {e.line:<5} {ids}{basis}{verified}")
@@ -366,10 +366,15 @@ def _render_markdown(report: ReportAudit) -> str:
         "|---|---|---|---|---|---|",
     ]
     for e in report.entries:
-        ids = ", ".join(f"`{i[:12]}`" for i in e.ids) or "none"
+        ids = ", ".join(f"`{_short(i)}`" for i in e.ids) or "none"
         detail = e.detail.replace("|", "\\|")
         lines.append(f"| {e.status} | {e.line} | {ids} | {e.basis or ''} | {e.verified or ''} | {detail} |")
     return "\n".join(lines) + "\n"
+
+
+def _short(ident: str) -> str:
+    """Shorten long hex ids; keep readable claim names like hmda-scale whole."""
+    return ident[:12] if re.fullmatch(r"[0-9a-f]{13,}", ident) else ident
 
 
 def _truncate(s: str, n: int) -> str:

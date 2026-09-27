@@ -55,3 +55,8 @@ def test_new_store_prefers_claimtrail_names(tmp_path, monkeypatch):
     store = store_mod.get_store()
     assert store.root.name == ".claimtrail"
     assert store.db_path.name == "claimtrail.sqlite"
+
+
+def test_payload_path_is_stored_relative_to_the_store(isolated_store):
+    comp_id = claimtrail.register_external(function_name="f", inputs={}, outputs=1)
+    assert claimtrail.get(comp_id).payload_path == f"payloads/{comp_id[:2]}/{comp_id}.json.gz"

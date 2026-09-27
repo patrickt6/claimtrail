@@ -602,6 +602,13 @@ class Store:
             None if comp.property_results is None
             else canonical_dumps(comp.property_results)
         )
+        # Store the payload path relative to the store root, so a store
+        # committed to git does not carry one machine's absolute paths.
+        # Reads never use this column; they derive the path from the id.
+        try:
+            comp.payload_path = str(Path(comp.payload_path).resolve().relative_to(self.root))
+        except ValueError:
+            pass
         params = (
             comp.id, comp.function_name, comp.function_module,
             comp.input_hash, comp.output_hash,
