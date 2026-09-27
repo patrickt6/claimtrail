@@ -24,6 +24,7 @@ import os
 from typing import Any
 
 from .inputs import collect_data_hashes
+from .ledger import current_actor
 from .serialize import hash_value
 from .store import Computation, get_store, utc_now_iso
 from .tracking import _make_id
@@ -42,6 +43,7 @@ def register_external(
     tags: dict[str, Any] | None = None,
     source_file: str | os.PathLike | None = None,
     notes: str | None = None,
+    recorded_by: str | None = None,
 ) -> str:
     """Register a computation produced outside the @tracked decorator.
 
@@ -70,6 +72,9 @@ def register_external(
         source_file: on-disk JSON file this row was built from. Recorded
             in the payload for traceability.
         notes: optional free-text annotation, stored in the payload.
+        recorded_by: who produced the outputs. Defaults to the current
+            actor (see :func:`claimtrail.ledger.current_actor`). A later
+            verification by anyone else counts as independent.
 
     Returns:
         The computation id (32-char blake2b hex, same format as @tracked).
@@ -138,6 +143,7 @@ def register_external(
         canonical_data_hash=canonical_data_hash,
         payload_hash=payload_hash,
         output_hash_algorithm=PAYLOAD_HASH_ALGORITHM,
+        recorded_by=recorded_by or current_actor(),
     )
     store.insert_computation(comp)
     return comp_id

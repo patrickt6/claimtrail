@@ -7,6 +7,16 @@ Strategy:
   4. Re-invoke with the recorded args/kwargs.
   5. Hash the new output and compare to the stored output_hash.
 
+Every completed check is appended to the verification log
+(:mod:`claimtrail.ledger`) unless ``record=False``: a match, a mismatch, or
+a re-run that raised. A check that could not start (the function is not
+importable) is not logged, because nothing was checked.
+
+Computations registered with ``register_external`` have no importable
+function. :func:`verify_against` checks them instead: a fresh run of the
+external pipeline produces new outputs, and their hash is compared with
+the recorded one.
+
 Caveats (matched to the PRD):
   - If the function isn't importable (lambda, function moved, function only
     defined inside a Sage `.sage` file), we report a clear error and abort -
@@ -21,8 +31,10 @@ import importlib
 from dataclasses import dataclass
 from typing import Any
 
+from . import ledger
+from .gitinfo import collect as collect_git
 from .serialize import canonical_dumps, hash_value
-from .store import get_store
+from .store import Computation, get_store
 
 
 @dataclass
@@ -33,6 +45,7 @@ class VerifyResult:
     actual_hash: str | None
     message: str
     diff_index: int | None = None
+    entry: "ledger.Verification | None" = None
 
 
 def _resolve_callable(module_name: str | None, function_name: str) -> Any:
@@ -64,7 +77,44 @@ def _first_diff_index(a: str, b: str) -> int | None:
     return None
 
 
-def verify(comp_id: str) -> VerifyResult:
+def _log(comp: Computation, result: VerifyResult, method: str, record: bool) -> VerifyResult:
+    if not record:
+        return result
+    outcome = "match" if result.ok else ("mismatch" if result.actual_hash else "error")
+    result.entry = ledger.append(
+        comp.id,
+        result=outcome,
+        method=method,
+        expected_hash=result.expected_hash,
+        actual_hash=result.actual_hash,
+        message=result.message,
+        code_sha=collect_git().sha,
+    )
+    return result
+
+
+def verify_against(comp_id: str, outputs: Any, *, record: bool = True) -> VerifyResult:
+    """Compare freshly produced ``outputs`` with a recorded computation.
+
+    Use this for computations registered with ``register_external``: run
+    the external pipeline again, load its outputs, and pass them here.
+    """
+    store = get_store()
+    comp = store.get_computation(comp_id)
+    if comp is None:
+        return VerifyResult(False, comp_id, None, None, f"no computation with id {comp_id!r}")
+    new_hash = hash_value(outputs)
+    if new_hash == comp.output_hash:
+        result = VerifyResult(True, comp.id, comp.output_hash, new_hash, "outputs identical to the record")
+    else:
+        result = VerifyResult(
+            False, comp.id, comp.output_hash, new_hash,
+            "outputs differ from the record: the result no longer reproduces",
+        )
+    return _log(comp, result, "compare-outputs", record)
+
+
+def verify(comp_id: str, *, record: bool = True) -> VerifyResult:
     store = get_store()
     comp = store.get_computation(comp_id)
     if comp is None:
@@ -78,6 +128,12 @@ def verify(comp_id: str) -> VerifyResult:
     payload = store.read_payload(comp.id)
     args = payload.get("args", [])
     kwargs = payload.get("kwargs", {})
+    if payload.get("external"):
+        return VerifyResult(
+            False, comp.id, comp.output_hash, None,
+            "external computation: re-run the pipeline that produced it and use "
+            "`claimtrail verify <id> --against <outputs.json>`",
+        )
     try:
         func = _resolve_callable(payload.get("function_module"), payload["function_name"])
     except Exception as exc:
@@ -88,19 +144,21 @@ def verify(comp_id: str) -> VerifyResult:
     try:
         new_result = func(*args, **kwargs)
     except Exception as exc:
-        return VerifyResult(
+        return _log(comp, VerifyResult(
             False, comp.id, comp.output_hash, None,
             f"re-run raised {type(exc).__name__}: {exc}",
-        )
+        ), "rerun", record)
     new_hash = hash_value(new_result)
     if new_hash == comp.output_hash:
-        return VerifyResult(True, comp.id, comp.output_hash, new_hash, "bit-identical output")
+        return _log(comp, VerifyResult(
+            True, comp.id, comp.output_hash, new_hash, "bit-identical output"
+        ), "rerun", record)
     expected_text = canonical_dumps(payload.get("result"))
     actual_text = canonical_dumps(new_result)
     diff = _first_diff_index(expected_text, actual_text)
-    return VerifyResult(
+    return _log(comp, VerifyResult(
         False, comp.id, comp.output_hash, new_hash,
-        "output hash differs - re-run produced a different value than the original. "
+        "output hash differs: re-run produced a different value than the original. "
         "If the function is non-deterministic, seed any RNG before decorating.",
         diff_index=diff,
-    )
+    ), "rerun", record)

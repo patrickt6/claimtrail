@@ -525,6 +525,7 @@ def _make_computation(
     payload_hash: str | None = None,
     property_results: dict[str, dict[str, Any]] | None = None,
 ) -> Computation:
+    from .ledger import current_actor
     from .store import PAYLOAD_HASH_ALGORITHM
     return Computation(
         id=comp_id,
@@ -553,6 +554,7 @@ def _make_computation(
         payload_hash=payload_hash,
         output_hash_algorithm=PAYLOAD_HASH_ALGORITHM if payload_hash else None,
         property_results=property_results,
+        recorded_by=current_actor(),
     )
 
 

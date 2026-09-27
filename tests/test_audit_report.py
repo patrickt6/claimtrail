@@ -127,3 +127,10 @@ def test_cli_exit_codes_and_json(tmp_path):
     assert fail.exit_code == 1
     body = json.loads(fail.output)
     assert body["summary"]["DRIFT"] == 1 and body["entries"][0]["unsupported"] == ["36,734,686"]
+
+
+def test_html_line_numbers_follow_the_source():
+    page = "<html>\n<body>\n<p>first 1</p>\n\n<ul><li>item 2</li>\n<li>item 3</li></ul>\n</body></html>\n"
+    assert [(b.text, b.line) for b in split_html(page)] == [
+        ("first 1", 3), ("item 2", 5), ("item 3", 6),
+    ]

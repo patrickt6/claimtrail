@@ -27,7 +27,9 @@ from .store import (
     utc_now_iso,
 )
 from .tracking import _make_id
-from .verify import verify as run_verify
+from . import ledger
+from .assertions import resolve_path
+from .verify import verify as run_verify, verify_against as run_verify_against
 
 
 def _shorten(s: str | None, n: int) -> str:
@@ -130,6 +132,8 @@ def show(comp_id: str, payload: bool, no_verify: bool) -> None:
         "payload_path": comp.payload_path,
         "tags": comp.tags,
         "canonical_data_hash": comp.canonical_data_hash,
+        "recorded_by": comp.recorded_by,
+        "verification": ledger.standing(comp, store=store).status,
     }
     click.echo(json.dumps(rec, indent=2, default=str))
     if payload:
@@ -280,11 +284,29 @@ def export_latex_cmd(since: str | None, until: str | None, computation: str | No
 
 @main.command()
 @click.argument("comp_id")
-def verify(comp_id: str) -> None:
-    """Re-run a recorded computation and check the output hash."""
-    result = run_verify(comp_id)
+@click.option(
+    "--against", "against", type=click.Path(exists=True, dir_okay=False, path_type=Path), default=None,
+    help="For external computations: a JSON file of freshly produced outputs to compare.",
+)
+@click.option("--key", default=None, help="With --against: a path inside the JSON file, e.g. 'results.headline'.")
+@click.option("--no-record", is_flag=True, help="Do not append this check to the verification log.")
+def verify(comp_id: str, against: Path | None, key: str | None, no_record: bool) -> None:
+    """Re-run a recorded computation and check the output hash.
+
+    Each completed check is appended to the verification log (see
+    `claimtrail verifications`). A check by someone other than the person
+    who recorded the computation counts as independent.
+    """
+    if against is not None:
+        outputs = json.loads(against.read_text(encoding="utf-8"))
+        if key:
+            outputs = resolve_path(outputs, key)
+        result = run_verify_against(comp_id, outputs, record=not no_record)
+    else:
+        result = run_verify(comp_id, record=not no_record)
     if result.ok:
-        click.echo(f"OK  {result.computation_id}  hash={result.actual_hash}")
+        logged = f"  logged #{result.entry.seq} by {result.entry.verifier}" if result.entry else ""
+        click.echo(f"OK  {result.computation_id}  hash={result.actual_hash}{logged}")
         return
     click.echo(f"FAIL  {result.computation_id}", err=True)
     click.echo(f"  expected: {result.expected_hash}", err=True)
@@ -292,7 +314,46 @@ def verify(comp_id: str) -> None:
     if result.diff_index is not None:
         click.echo(f"  first divergence at canonical-JSON byte {result.diff_index}", err=True)
     click.echo(f"  {result.message}", err=True)
+    if result.entry:
+        click.echo(f"  logged #{result.entry.seq} as {result.entry.result}", err=True)
     sys.exit(2)
+
+
+@main.command(name="verifications")
+@click.argument("comp_id", required=False)
+@click.option("--check-chain", is_flag=True, help="Recompute the hash chain and report any broken link.")
+def verifications_cmd(comp_id: str | None, check_chain: bool) -> None:
+    """Show the append-only verification log, or check its hash chain."""
+    store = _store_for_cwd()
+    if check_chain:
+        problems = ledger.check_chain(store)
+        log = ledger.entries(store=store)
+        if problems:
+            for p in problems:
+                click.echo(f"BROKEN  {p}", err=True)
+            sys.exit(1)
+        head = log[-1].entry_hash if log else ledger.GENESIS
+        click.echo(f"chain intact: {len(log)} entries, head {head}")
+        return
+    full_id = None
+    if comp_id:
+        comp = store.get_computation(comp_id)
+        full_id = comp.id if comp is not None else comp_id
+    log = ledger.entries(full_id, store=store)
+    if not log:
+        click.echo("no verifications recorded")
+        return
+    click.echo(f"{'#':>4}  {'WHEN':<20}  {'COMPUTATION':<12}  {'RESULT':<8}  {'METHOD':<15}  VERIFIER")
+    for v in log:
+        click.echo(
+            f"{v.seq:>4}  {v.verified_at[:19]:<20}  {v.computation_id[:12]:<12}  "
+            f"{v.result:<8}  {v.method:<15}  {v.verifier}"
+        )
+    if full_id:
+        comp = store.get_computation(full_id)
+        if comp is not None:
+            st = ledger.standing(comp, store=store)
+            click.echo(f"standing: {st.status} (recorded by {comp.recorded_by or 'unknown'})")
 
 
 @main.command()

@@ -26,6 +26,11 @@ Each linked block gets one status:
 - ``MISSING``  the marker does not resolve to anything in the store.
 - ``ORPHAN``   the marker resolves to a claim with no backing computation.
 
+Each linked entry also shows ``basis`` (a ``basis`` tag on the claim or
+computation, for example MEASURED or SAMPLE_BASED) and ``verified``, the
+computation's standing in the verification log (independent, self-checked,
+author-unknown, unverified or failed).
+
 With ``strict=True``, a block that states numbers but carries no marker is
 reported as ``UNBACKED``. That is the check to run in CI on a report that
 is meant to be fully traced.
@@ -40,6 +45,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from . import assertions as _assertions
+from . import ledger
 from .audit_paper import _payload_numbers, _resolve_provid
 from .quantities import Quantity, extract_quantities
 from .store import Claim, Computation, Store
@@ -63,6 +69,7 @@ _HTML_BLOCK_RE = re.compile(
 )
 _HTML_CELL_RE = re.compile(r"</?t[dh]\b[^>]*>", re.I)
 _HTML_TAG_RE = re.compile(r"<(?!!--)[^>]+>")
+_BLOCK_SEP = "\x1e"
 
 
 @dataclasses.dataclass
@@ -79,6 +86,7 @@ class ReportEntry:
     detail: str
     ids: list[str] = dataclasses.field(default_factory=list)
     basis: Optional[str] = None
+    verified: Optional[str] = None
     quantities: list[Quantity] = dataclasses.field(default_factory=list)
     unsupported: list[Quantity] = dataclasses.field(default_factory=list)
     failed_assertions: list[str] = dataclasses.field(default_factory=list)
@@ -165,18 +173,20 @@ def split_html(text: str) -> list[Block]:
     )
     text = _HTML_DROP_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
     text = _HTML_CELL_RE.sub(" | ", text)
-    text = _HTML_BLOCK_RE.sub("\n\n", text)
+    # Block tags become a separator that is not a newline, so the line
+    # numbers reported for each block stay true to the source file.
+    text = _HTML_BLOCK_RE.sub(_BLOCK_SEP, text)
     text = _HTML_TAG_RE.sub("", text)
-    text = html.unescape(text)
     blocks: list[Block] = []
     line = 1
-    for chunk in re.split(r"(\n\s*\n)", text):
-        if chunk.strip() and not re.fullmatch(r"\n\s*\n", chunk):
-            first = len(chunk) - len(chunk.lstrip("\n"))
-            clean = re.sub(r"[ \t]*\|[ \t|]*$", "", re.sub(r"\s+", " ", chunk).strip())
-            clean = re.sub(r"^\|\s*", "", clean)
-            if clean:
-                blocks.append(Block(clean, line + first))
+    for chunk in re.split(r"(\x1e|\n[ \t]*\n)", text):
+        if chunk == _BLOCK_SEP:
+            continue
+        lead = chunk[: len(chunk) - len(chunk.lstrip())].count("\n")
+        clean = html.unescape(re.sub(r"\s+", " ", chunk).strip())
+        clean = re.sub(r"^(?:\|\s*)+|(?:\s*\|)+$", "", clean).strip()
+        if clean:
+            blocks.append(Block(clean, line + lead))
         line += chunk.count("\n")
     return blocks
 
@@ -226,6 +236,7 @@ def audit_block(block: Block, db: Store, *, strict: bool = False) -> Optional[Re
 
     supported_values: list[float] = []
     basis: set[str] = set()
+    standings: set[str] = set()
     problems: list[tuple[Status, str]] = []
     failed_assertions: list[str] = []
     for ident in ids:
@@ -249,6 +260,7 @@ def audit_block(block: Block, db: Store, *, strict: bool = False) -> Optional[Re
             continue
         if comp.tags.get("basis"):
             basis.add(comp.tags["basis"])
+        standings.add(ledger.standing(comp, store=db).status)
         supported_values.extend(v for _, v in _payload_numbers(_payload_subset(payload)))
         if claim is not None:
             supported_values.extend(q.value for q in extract_quantities(claim.text))
@@ -278,7 +290,8 @@ def audit_block(block: Block, db: Store, *, strict: bool = False) -> Optional[Re
         detail = f"{len(quantities)} number(s) supported by the linked record"
     return ReportEntry(
         line=block.line, text=prose.strip(), status=status, detail=detail, ids=ids,
-        basis=", ".join(sorted(basis)) or None, quantities=quantities,
+        basis=", ".join(sorted(basis)) or None,
+        verified=", ".join(sorted(standings)) or None, quantities=quantities,
         unsupported=unsupported, failed_assertions=failed_assertions,
     )
 
@@ -316,7 +329,8 @@ def _render_text(report: ReportAudit) -> str:
     for e in report.entries:
         ids = ",".join(i[:12] for i in e.ids) or "-"
         basis = f"  basis={e.basis}" if e.basis else ""
-        lines.append(f"{e.status:<9} line {e.line:<5} {ids}{basis}")
+        verified = f"  verified={e.verified}" if e.verified else ""
+        lines.append(f"{e.status:<9} line {e.line:<5} {ids}{basis}{verified}")
         lines.append(f"          {_truncate(e.text, 110)}")
         if e.status != "MATCH":
             lines.append(f"          {e.detail}")
@@ -328,6 +342,7 @@ def _render_json(report: ReportAudit) -> str:
     def entry(e: ReportEntry) -> dict:
         return {
             "line": e.line, "status": e.status, "ids": e.ids, "basis": e.basis,
+            "verified": e.verified,
             "detail": e.detail, "text": e.text,
             "numbers": [q.raw_text for q in e.quantities],
             "unsupported": [q.raw_text for q in e.unsupported],
@@ -347,13 +362,13 @@ def _render_markdown(report: ReportAudit) -> str:
         f"- **Report**: `{report.path}`",
         f"- **Summary**: {_summary_line(report) or 'nothing linked'}",
         "",
-        "| Status | Line | Record | Basis | Detail |",
-        "|---|---|---|---|---|",
+        "| Status | Line | Record | Basis | Verified | Detail |",
+        "|---|---|---|---|---|---|",
     ]
     for e in report.entries:
         ids = ", ".join(f"`{i[:12]}`" for i in e.ids) or "none"
         detail = e.detail.replace("|", "\\|")
-        lines.append(f"| {e.status} | {e.line} | {ids} | {e.basis or ''} | {detail} |")
+        lines.append(f"| {e.status} | {e.line} | {ids} | {e.basis or ''} | {e.verified or ''} | {detail} |")
     return "\n".join(lines) + "\n"
 
 

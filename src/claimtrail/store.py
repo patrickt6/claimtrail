@@ -11,10 +11,15 @@ Layout under store_root (default `./.claimtrail`):
 The store is single-user. We open a fresh sqlite3 connection per write to
 avoid threading subtleties, and keep the schema minimal.
 
-Schema v5 adds the ``assertions`` column to ``claims``: a JSON list of
-structured checks (see :mod:`claimtrail.assertions`) evaluated against the
-linked computation's payload. Strictly additive: existing claims get NULL
-and are checked exactly as before.
+Schema v5 is strictly additive over v4:
+
+- ``claims.assertions``: a JSON list of structured checks (see
+  :mod:`claimtrail.assertions`) evaluated against the linked computation's
+  payload. Existing claims get NULL and are checked exactly as before.
+- ``computations.recorded_by``: who ran the computation. Existing rows get
+  NULL, which the verification log reads as "author unknown", never as
+  independent.
+- the append-only ``verifications`` table (see :mod:`claimtrail.ledger`).
 
 Schema v4 adds the ``property_results`` column to ``computations`` for the
 property-based tracking layer. Strictly additive on top of v3:
@@ -132,7 +137,8 @@ CREATE TABLE IF NOT EXISTS computations (
     error_message          TEXT,
     payload_path           TEXT NOT NULL,
     canonical_data_hash    TEXT,
-    property_results       TEXT
+    property_results       TEXT,
+    recorded_by            TEXT
 );
 
 CREATE TABLE IF NOT EXISTS tags (
@@ -207,6 +213,7 @@ class Computation:
     payload_hash: str | None = None
     output_hash_algorithm: str | None = None
     property_results: dict[str, dict[str, Any]] | None = None
+    recorded_by: str | None = None
 
     @property
     def result(self) -> Any:
@@ -380,6 +387,11 @@ class Store:
         claim_cols = {r["name"] for r in conn.execute("PRAGMA table_info(claims)").fetchall()}
         if "assertions" not in claim_cols:
             conn.execute("ALTER TABLE claims ADD COLUMN assertions TEXT")
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(computations)").fetchall()}
+        if "recorded_by" not in cols:
+            conn.execute("ALTER TABLE computations ADD COLUMN recorded_by TEXT")
+        from .ledger import SCHEMA as LEDGER_SCHEMA
+        conn.executescript(LEDGER_SCHEMA)
 
     def _backfill_payload_hashes(self, conn: sqlite3.Connection) -> None:
         rows = conn.execute(
@@ -602,7 +614,7 @@ class Store:
             comp.runtime_seconds, comp.started_at, comp.ended_at,
             comp.status, comp.error_type, comp.error_message,
             comp.payload_path, comp.canonical_data_hash,
-            property_results_json,
+            property_results_json, comp.recorded_by,
         )
         cols_sql = (
             "id, function_name, function_module, "
@@ -612,7 +624,7 @@ class Store:
             "python_version, sage_version, os_info, "
             "runtime_seconds, started_at, ended_at, "
             "status, error_type, error_message, payload_path, "
-            "canonical_data_hash, property_results"
+            "canonical_data_hash, property_results, recorded_by"
         )
         with self._connect() as conn:
             if force:
@@ -930,6 +942,7 @@ def _row_to_computation(row: sqlite3.Row, tags: dict[str, str]) -> Computation:
     property_results = (
         canonical_loads(property_results_raw) if property_results_raw else None
     )
+    recorded_by = row["recorded_by"] if "recorded_by" in keys else None
     return Computation(
         id=row["id"],
         function_name=row["function_name"],
@@ -957,6 +970,7 @@ def _row_to_computation(row: sqlite3.Row, tags: dict[str, str]) -> Computation:
         payload_hash=payload_hash,
         output_hash_algorithm=output_hash_algorithm,
         property_results=property_results,
+        recorded_by=recorded_by,
     )
 
 

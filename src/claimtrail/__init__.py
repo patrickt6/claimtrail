@@ -8,6 +8,9 @@ Public API:
     export_latex(...)     render claims to a .tex file
     audit_report(...)     check a Markdown/HTML report's numbers against the store
     check_claims(...)     re-check structured claim assertions
+    verify(id)            re-run a computation; the check is logged
+    verify_against(id, outputs)  check an external computation against fresh outputs
+    ledger                the append-only, hash-chained verification log
     register_external(...) retroactively register pre-existing JSON outputs
     set_store_root(path)  override the default .claimtrail store location
 """
@@ -32,6 +35,8 @@ from .claims import claim, check_claims, ClaimCheck, export_latex, UnbackedPaper
 from .assertions import ClaimAssertionError, Expectation, parse_expectation
 from .audit_report import audit_report, ReportAudit, ReportEntry
 from .quantities import Quantity, extract_quantities
+from .verify import verify, verify_against, VerifyResult
+from . import ledger
 from .inputs import canonical_file, hash_file, path_of
 from .query import find, get
 from .external import register_external
@@ -69,6 +74,10 @@ __all__ = [
     "ReportEntry",
     "Quantity",
     "extract_quantities",
+    "verify",
+    "verify_against",
+    "VerifyResult",
+    "ledger",
     "find",
     "get",
     "export_latex",
