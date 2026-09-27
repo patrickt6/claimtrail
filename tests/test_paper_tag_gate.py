@@ -4,10 +4,10 @@ from __future__ import annotations
 import pytest
 from click.testing import CliRunner
 
-import qprov
-from qprov import UnbackedPaperClaimError, claim, tracked
-from qprov.cli import main as cli_main
-from qprov.store import get_store
+import claimtrail
+from claimtrail import UnbackedPaperClaimError, claim, tracked
+from claimtrail.cli import main as cli_main
+from claimtrail.store import get_store
 
 
 def _make_backed_computation():
@@ -15,7 +15,7 @@ def _make_backed_computation():
     def make_data():
         return {"n": 42}
     make_data()
-    return qprov.find()[0]
+    return claimtrail.find()[0]
 
 
 def test_unbacked_paper_tag_raises():
@@ -43,7 +43,7 @@ def test_backed_paper_claim_succeeds():
 
 def test_allow_unbacked_escape_valve():
     """For staged claims awaiting back-attach, the escape valve persists the
-    row anyway and auto-tags it `unbacked=true` so `qprov lint` can
+    row anyway and auto-tags it `unbacked=true` so `claimtrail lint` can
     distinguish opted-in unbacked from forgot-to-attach."""
     cid = claim(
         "Staged claim awaiting data.",
@@ -76,7 +76,7 @@ def test_list_claims_by_tag_finds_paper_claims():
 
 
 def test_cli_claim_paper_tag_without_link_fails(tmp_path, monkeypatch):
-    monkeypatch.setenv("QPROV_HOME", str(tmp_path / ".qprov"))
+    monkeypatch.setenv("CLAIMTRAIL_HOME", str(tmp_path / ".claimtrail"))
     runner = CliRunner()
     result = runner.invoke(
         cli_main,
@@ -96,9 +96,9 @@ def test_cli_lint_flags_orphan(tmp_path, monkeypatch):
     catch the row even if the CHECK were ever disabled by an older
     toolchain.
     """
-    monkeypatch.setenv("QPROV_HOME", str(tmp_path / ".qprov"))
-    from qprov import store as store_mod
-    from qprov.store import utc_now_iso
+    monkeypatch.setenv("CLAIMTRAIL_HOME", str(tmp_path / ".claimtrail"))
+    from claimtrail import store as store_mod
+    from claimtrail.store import utc_now_iso
     store_mod._store_singleton = None
     store = store_mod.get_store()
 

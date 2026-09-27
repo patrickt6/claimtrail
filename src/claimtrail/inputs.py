@@ -68,7 +68,7 @@ def canonical_file(path: str | os.PathLike) -> dict[str, Any]:
 
     Example:
 
-        from qprov import tracked, canonical_file
+        from claimtrail import tracked, canonical_file
 
         @tracked
         def scan_csv(csv):
@@ -119,16 +119,16 @@ def auto_canonicalize(value: Any, strict: bool = False) -> Any:
 
     When ``strict=False`` (the default), a value that *looks* like a
     path but does not resolve to an existing file emits a
-    ``QprovHashWarning`` and falls back to path-string hashing - the
+    ``ClaimtrailHashWarning`` and falls back to path-string hashing - the
     pre-v0.2 behaviour, preserved for backwards compatibility. When
     ``strict=True``, the same situation raises
-    ``QprovFileMissingError`` instead. ``strict=True`` is wired up
+    ``ClaimtrailFileMissingError`` instead. ``strict=True`` is wired up
     from ``@tracked(..., require_data_files=True)``.
     """
     # Local imports break the otherwise-circular tracking <-> inputs
     # cycle. ``tracking`` already imports from ``inputs``, so the
     # exception classes have to be resolved lazily here.
-    from .tracking import QprovFileMissingError, QprovHashWarning
+    from .tracking import ClaimtrailFileMissingError, ClaimtrailHashWarning
 
     if isinstance(value, dict) and value.get(CANONICAL_FILE_TAG):
         return value
@@ -140,7 +140,7 @@ def auto_canonicalize(value: Any, strict: bool = False) -> Any:
         if p.is_file():
             return canonical_file(p)
         if strict:
-            raise QprovFileMissingError(
+            raise ClaimtrailFileMissingError(
                 f"auto_canonicalize: path {value!r} does not resolve "
                 f"to an existing file at hash time. This is the v0.2 "
                 f"'soft fallback' failure mode. Either fix the path "
@@ -149,7 +149,7 @@ def auto_canonicalize(value: Any, strict: bool = False) -> Any:
         _warnings.warn(
             f"auto_canonicalize: path {value!r} did not resolve; "
             f"falling back to path-string hashing.",
-            category=QprovHashWarning,
+            category=ClaimtrailHashWarning,
             stacklevel=3,
         )
     return value
@@ -191,13 +191,13 @@ def collect_data_hashes(
       reached via multiple paths still get fingerprinted at each
       reachable occurrence.
     * A depth limit (``max_depth``, default 16) raises
-      ``QprovTraversalError`` on overflow. Deeper-than-16 nesting in
+      ``ClaimtrailTraversalError`` on overflow. Deeper-than-16 nesting in
       a research payload is almost certainly a cycle or a
       pathological structure that we should refuse to fingerprint
       silently - the audit cares about *which* files contributed to
       a row, and a silently-truncated walk would hide gaps.
     """
-    from .tracking import QprovTraversalError
+    from .tracking import ClaimtrailTraversalError
 
     path_keyed = out is not None
     result: dict[str, str] = out if path_keyed else {}
@@ -220,7 +220,7 @@ def collect_data_hashes(
 
     def visit(v: Any, depth: int, key_path: str) -> None:
         if depth > max_depth:
-            raise QprovTraversalError(
+            raise ClaimtrailTraversalError(
                 f"collect_data_hashes: input structure exceeds depth "
                 f"limit {max_depth}. Either a cycle in the inputs or "
                 f"a pathologically nested object - refusing to "

@@ -2,7 +2,7 @@
 
 Covers the contract:
 
-- An error-severity property that fails BLOCKS the qprov write.
+- An error-severity property that fails BLOCKS the claimtrail write.
 - A warning-severity property that fails LOGS but writes.
 - An all-pass property run records ``property_results`` on the row
   and in the payload.
@@ -19,15 +19,15 @@ import warnings as _warnings
 
 import pytest
 
-import qprov
-from qprov import (
+import claimtrail
+from claimtrail import (
     Property,
     PropertyResult,
-    QprovPropertyError,
-    QprovPropertyWarning,
+    ClaimtrailPropertyError,
+    ClaimtrailPropertyWarning,
     tracked,
 )
-from qprov.properties_qnumbers import (
+from claimtrail.properties_qnumbers import (
     check_bidegree_conformity,
     check_gap_theorem,
     check_kernel_empty_for_cube_root,
@@ -62,7 +62,7 @@ def test_property_passes_writes_record():
         return {"sum": x + y}
 
     add(2, 3)
-    comps = qprov.find()
+    comps = claimtrail.find()
     assert len(comps) == 1
     c = comps[0]
     assert c.property_results is not None
@@ -71,7 +71,7 @@ def test_property_passes_writes_record():
 
 
 def test_property_error_blocks_write():
-    """Failed error-severity property raises and BLOCKS the qprov write."""
+    """Failed error-severity property raises and BLOCKS the claimtrail write."""
     @tracked(properties=[
         Property(name="trivial_fail", check=_always_fail,
                  description="trivially false", severity="error"),
@@ -79,11 +79,11 @@ def test_property_error_blocks_write():
     def add(x, y):
         return {"sum": x + y}
 
-    with pytest.raises(QprovPropertyError) as excinfo:
+    with pytest.raises(ClaimtrailPropertyError) as excinfo:
         add(2, 3)
     assert "trivial_fail" in str(excinfo.value)
     # No row landed in the store.
-    assert qprov.find() == []
+    assert claimtrail.find() == []
 
 
 def test_property_warning_logs_but_writes():
@@ -99,11 +99,11 @@ def test_property_warning_logs_but_writes():
         _warnings.simplefilter("always")
         add(2, 3)
 
-    qpwarns = [w for w in wlist if issubclass(w.category, QprovPropertyWarning)]
+    qpwarns = [w for w in wlist if issubclass(w.category, ClaimtrailPropertyWarning)]
     assert len(qpwarns) >= 1
     assert "trivial_warn" in str(qpwarns[0].message)
 
-    comps = qprov.find()
+    comps = claimtrail.find()
     assert len(comps) == 1
     c = comps[0]
     assert c.property_results is not None
@@ -121,8 +121,8 @@ def test_property_results_persist_in_payload():
         return {"value": 42}
 
     stub()
-    c = qprov.find()[0]
-    payload = qprov.get_store().read_payload(c.id)
+    c = claimtrail.find()[0]
+    payload = claimtrail.get_store().read_payload(c.id)
     assert "property_results" in payload
     assert payload["property_results"]["trivial_pass"]["passed"] is True
 
@@ -140,11 +140,11 @@ def test_property_check_exception_treated_as_failure():
     def stub():
         return {"value": 1}
 
-    with pytest.raises(QprovPropertyError) as excinfo:
+    with pytest.raises(ClaimtrailPropertyError) as excinfo:
         stub()
     assert "explodes" in str(excinfo.value)
     assert "ValueError" in str(excinfo.value)
-    assert qprov.find() == []
+    assert claimtrail.find() == []
 
 
 def test_no_properties_legacy_path_still_works():
@@ -154,7 +154,7 @@ def test_no_properties_legacy_path_still_works():
         return x + y
 
     assert add(1, 2) == 3
-    c = qprov.find()[0]
+    c = claimtrail.find()[0]
     assert c.property_results is None
 
 
@@ -197,10 +197,10 @@ def test_hypothesis_finds_counterexample():
         return {"value": 0}
 
     with _warnings.catch_warnings():
-        _warnings.simplefilter("ignore", category=QprovPropertyWarning)
+        _warnings.simplefilter("ignore", category=ClaimtrailPropertyWarning)
         stub()
 
-    c = qprov.find()[0]
+    c = claimtrail.find()[0]
     pr = c.property_results["n_squared_geq_2n"]
     assert pr["passed"] is False
     # The counterexample is one of {-5, -4, -3, -2, -1, 1}; Hypothesis is
@@ -429,12 +429,12 @@ def test_recovers_mgo_eq_14_passes_on_canonical_phi_basis():
 
 
 def test_properties_check_cli_reruns_against_stored_payload(tmp_path, monkeypatch):
-    """`qprov properties --check --comp-id <id>` re-runs declared
+    """`claimtrail properties --check --comp-id <id>` re-runs declared
     properties using the stored payload's args/kwargs/result. The
     re-run respects whatever Property declarations are wired through
     a name resolution table (here: stub via the in-memory registry)."""
     from click.testing import CliRunner
-    from qprov.cli import main
+    from claimtrail.cli import main
 
     # Run a tracked function with a passing property, get its id.
     @tracked(properties=[
@@ -445,7 +445,7 @@ def test_properties_check_cli_reruns_against_stored_payload(tmp_path, monkeypatc
         return {"value": 1}
 
     stub()
-    c = qprov.find()[0]
+    c = claimtrail.find()[0]
 
     runner = CliRunner()
     result = runner.invoke(main, ["properties", "--check", "--comp-id", c.id])
@@ -455,10 +455,10 @@ def test_properties_check_cli_reruns_against_stored_payload(tmp_path, monkeypatc
 
 
 def test_properties_list_cli_lists_all_property_keys(tmp_path):
-    """`qprov properties --list` enumerates the property names recorded
+    """`claimtrail properties --list` enumerates the property names recorded
     across the store."""
     from click.testing import CliRunner
-    from qprov.cli import main
+    from claimtrail.cli import main
 
     @tracked(properties=[
         Property(name="prop_alpha", check=_always_pass,

@@ -7,9 +7,9 @@ import json
 import pytest
 from click.testing import CliRunner
 
-import qprov
-from qprov import register_external, tracked
-from qprov.cli import main
+import claimtrail
+from claimtrail import register_external, tracked
+from claimtrail.cli import main
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def seeded_computation():
     def add(x, y):
         return x + y
     add(2, 3)
-    return qprov.find()[0]
+    return claimtrail.find()[0]
 
 
 def test_cli_help(runner):
@@ -35,7 +35,7 @@ def test_cli_help(runner):
 def test_cli_init_in_tmp(runner, tmp_path):
     res = runner.invoke(main, ["init", "--path", str(tmp_path)])
     assert res.exit_code == 0
-    assert (tmp_path / ".qprov" / "qprov.sqlite").is_file()
+    assert (tmp_path / ".claimtrail" / "claimtrail.sqlite").is_file()
 
 
 def test_cli_list(runner, seeded_computation):
@@ -113,10 +113,10 @@ def test_cli_show_missing_id(runner):
 
 
 def test_cli_show_no_verify_returns_tampered_payload(runner, seeded_computation):
-    """`qprov show <id> --payload --no-verify` must read a tampered
+    """`claimtrail show <id> --payload --no-verify` must read a tampered
     payload without raising. The v3 default check still raises
     PayloadTamperedError on `--payload` alone."""
-    store = qprov.get_store()
+    store = claimtrail.get_store()
     path = store.payload_path_for(seeded_computation.id)
     with gzip.open(path, "rb") as f:
         body = f.read().decode("utf-8")
@@ -149,13 +149,13 @@ def test_cli_lint_flags_tampered(runner):
         outputs={"kernel_dim": 1},
         code_sha="sha",
     )
-    qprov.claim(
+    claimtrail.claim(
         "first nonzero coefficient",
         computation_id=cid,
         tags={"paper": "my-paper"},
     )
 
-    store = qprov.get_store()
+    store = claimtrail.get_store()
     path = store.payload_path_for(cid)
     with gzip.open(path, "rb") as f:
         body = f.read().decode("utf-8")
@@ -180,13 +180,13 @@ def test_cli_lint_flags_id_drift(runner):
         outputs={"kernel_dim": 1},
         code_sha="sha",
     )
-    qprov.claim(
+    claimtrail.claim(
         "claim text",
         computation_id=cid,
         tags={"paper": "my-paper"},
     )
 
-    store = qprov.get_store()
+    store = claimtrail.get_store()
     with store._connect() as conn:
         conn.execute(
             "UPDATE computations SET input_hash = ? WHERE id = ?",
@@ -209,7 +209,7 @@ def test_cli_lint_clean_passes_with_real_data(runner):
         outputs={"kernel_dim": 1},
         code_sha="sha",
     )
-    qprov.claim(
+    claimtrail.claim(
         "a clean claim",
         computation_id=cid,
         tags={"paper": "my-paper"},

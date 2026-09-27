@@ -15,14 +15,14 @@ import sqlite3
 
 import pytest
 
-import qprov
-from qprov import (
-    QprovCollisionError,
+import claimtrail
+from claimtrail import (
+    ClaimtrailCollisionError,
     PayloadTamperedError,
     register_external,
     tracked,
 )
-from qprov.store import (
+from claimtrail.store import (
     PAYLOAD_HASH_ALGORITHM,
     Claim,
     Computation,
@@ -72,11 +72,11 @@ def _fresh_computation(comp_id: str = "abc123", *, output_hash: str = "out") -> 
 
 def test_collision_raises_on_distinct_content():
     """Two writes that share an id but differ on identity columns must
-    raise QprovCollisionError. The pre-v3 INSERT OR REPLACE silently
+    raise ClaimtrailCollisionError. The pre-v3 INSERT OR REPLACE silently
     clobbered the older row; v3 makes the conflict loud."""
     store = get_store()
     store.insert_computation(_fresh_computation(output_hash="out_A"))
-    with pytest.raises(QprovCollisionError) as excinfo:
+    with pytest.raises(ClaimtrailCollisionError) as excinfo:
         store.insert_computation(_fresh_computation(output_hash="out_B"))
     assert "abc123" in str(excinfo.value)
     assert "out_A" in str(excinfo.value)
@@ -112,7 +112,7 @@ def test_force_overrides_collision():
 
 def test_collision_via_tracked_idempotent_runs():
     """Calling the same @tracked function with the same inputs must
-    collapse to a single row without raising QprovCollisionError. This
+    collapse to a single row without raising ClaimtrailCollisionError. This
     is the regression guard for users who rerun their scripts."""
     @tracked
     def add(x, y):
@@ -122,7 +122,7 @@ def test_collision_via_tracked_idempotent_runs():
     add(2, 3)
     add(2, 3)
 
-    comps = qprov.find(function="add")
+    comps = claimtrail.find(function="add")
     assert len(comps) == 1
     assert comps[0].output_hash is not None
 
@@ -140,7 +140,7 @@ def test_payload_tampering_detected():
         return {"value": x}
 
     make_payload(1)
-    comp = qprov.find(function="make_payload")[0]
+    comp = claimtrail.find(function="make_payload")[0]
 
     store = get_store()
     payload_path = store.payload_path_for(comp.id)
@@ -168,7 +168,7 @@ def test_no_verify_skips_integrity_check():
         return {"value": x}
 
     make_payload(1)
-    comp = qprov.find(function="make_payload")[0]
+    comp = claimtrail.find(function="make_payload")[0]
     store = get_store()
     payload_path = store.payload_path_for(comp.id)
     with gzip.open(payload_path, "rb") as f:
@@ -195,7 +195,7 @@ def test_payload_hash_populated_on_write():
         return 42
 
     f()
-    comp = qprov.find(function="f")[0]
+    comp = claimtrail.find(function="f")[0]
     assert comp.payload_hash is not None
     assert len(comp.payload_hash) == 32  # blake2b 16-byte digest -> hex
     assert comp.output_hash_algorithm == PAYLOAD_HASH_ALGORITHM
@@ -214,7 +214,7 @@ def test_fk_restrict_blocks_delete_of_backing_computation():
         outputs={"kernel_dim": 1},
         code_sha="sha",
     )
-    qprov.claim(
+    claimtrail.claim(
         "first nonzero coefficient",
         computation_id=cid,
         tags={"paper": "my-paper"},
@@ -276,7 +276,7 @@ def test_claim_collision_raises_on_distinct_content():
         outputs={"y": 2},
         code_sha="sha",
     )
-    qprov.claim(
+    claimtrail.claim(
         "first",
         claim_id="cl_a",
         computation_id=cid,
@@ -290,7 +290,7 @@ def test_claim_collision_raises_on_distinct_content():
         created_at=utc_now_iso(),
         notes=None,
     )
-    with pytest.raises(QprovCollisionError):
+    with pytest.raises(ClaimtrailCollisionError):
         store.insert_claim(duplicate)
 
 
@@ -301,9 +301,9 @@ def test_claim_collision_same_content_is_noop():
         outputs={"y": 2},
         code_sha="sha",
     )
-    qprov.claim("same", claim_id="cl_b", computation_id=cid)
-    qprov.claim("same", claim_id="cl_b", computation_id=cid)
-    qprov.claim("same", claim_id="cl_b", computation_id=cid)
+    claimtrail.claim("same", claim_id="cl_b", computation_id=cid)
+    claimtrail.claim("same", claim_id="cl_b", computation_id=cid)
+    claimtrail.claim("same", claim_id="cl_b", computation_id=cid)
     all_claims = get_store().list_claims()
     assert len([c for c in all_claims if c.id == "cl_b"]) == 1
 
@@ -390,7 +390,7 @@ def test_migration_from_simulated_v2_store(tmp_path):
     payloads = root / "payloads" / "ab"
     payloads.mkdir(parents=True)
 
-    db_path = root / "qprov.sqlite"
+    db_path = root / "claimtrail.sqlite"
     conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     conn.executescript(

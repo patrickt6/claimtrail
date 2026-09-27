@@ -10,19 +10,19 @@ from pathlib import Path
 
 import pytest
 
-import qprov
-from qprov import (
+import claimtrail
+from claimtrail import (
     audit_paper,
     register_external,
     tracked,
     Claim,
 )
-from qprov.audit_paper import (
+from claimtrail.audit_paper import (
     extract_numbers_from_paragraph,
     extract_provid_references,
     render_report,
 )
-from qprov.store import get_store, utc_now_iso
+from claimtrail.store import get_store, utc_now_iso
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +52,7 @@ def _seed_claim_with_payload(
         notes=None,
         tags={"paper": paper_tag},
     )
-    qprov.claim(
+    claimtrail.claim(
         text,
         computation_id=cid,
         claim_id=claim_id,
@@ -203,7 +203,7 @@ def test_orphan_claim(tmp_path):
     """A claim row with NULL computation_id (allow_unbacked=True) must
     surface as ORPHAN; the paragraph cannot be checked against a
     payload that does not exist."""
-    qprov.claim(
+    claimtrail.claim(
         "Unbacked staging claim.",
         claim_id="test_orphan_claim",
         tags={"paper": "test-paper"},

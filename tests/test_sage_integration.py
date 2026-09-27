@@ -5,7 +5,7 @@ available, this:
   1. constructs Sage Integers, Rationals, and Laurent polynomials
   2. feeds them through canonical_dumps -> canonical_loads -> hash_value
   3. wraps `q_real_truncated` from the project's `q_continued_fraction.sage`
-     (if findable) and verifies bit-identical re-run via qprov.verify
+     (if findable) and verifies bit-identical re-run via claimtrail.verify
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ sage_all = pytest.importorskip("sage.all")
 
 def test_sage_integer_serializes():
     from sage.all import Integer
-    from qprov.serialize import canonical_dumps, canonical_loads, hash_value
+    from claimtrail.serialize import canonical_dumps, canonical_loads, hash_value
 
     big = Integer(10) ** 60
     text = canonical_dumps(big)
@@ -32,7 +32,7 @@ def test_sage_integer_serializes():
 
 def test_sage_rational_serializes():
     from sage.all import QQ
-    from qprov.serialize import canonical_dumps, canonical_loads
+    from claimtrail.serialize import canonical_dumps, canonical_loads
 
     r = QQ((22, 7))
     text = canonical_dumps(r)
@@ -44,7 +44,7 @@ def test_sage_rational_serializes():
 
 def test_sage_laurent_serializes_and_hashes_stably():
     from sage.all import LaurentSeriesRing, ZZ, Integer
-    from qprov.serialize import canonical_dumps, hash_value
+    from claimtrail.serialize import canonical_dumps, hash_value
 
     L = LaurentSeriesRing(ZZ, "q", default_prec=10)
     q = L.gen()
@@ -81,17 +81,17 @@ def _load_q_real_truncated():
     with open(sage_path, "r", encoding="utf-8") as f:
         src = f.read()
     code = preparse(src)
-    ns: dict = {"__name__": "qprov_sage_target"}
+    ns: dict = {"__name__": "claimtrail_sage_target"}
     exec(compile(code, sage_path, "exec"), ns)
     return ns["q_real_truncated"]
 
 
-def test_q_real_truncated_roundtrips_through_qprov():
+def test_q_real_truncated_roundtrips_through_claimtrail():
     """End-to-end: decorate q_real_truncated, run it, verify hashes are stable."""
     q_real_truncated = _load_q_real_truncated()
     from sage.all import pi as sage_pi
-    from qprov import tracked, find
-    from qprov.serialize import hash_value
+    from claimtrail import tracked, find
+    from claimtrail.serialize import hash_value
 
     decorated = tracked(tags={"constant": "pi", "test": "sage_integration"})(
         q_real_truncated

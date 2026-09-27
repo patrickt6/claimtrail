@@ -1,4 +1,4 @@
-# qprov
+# claimtrail
 
 Provenance tracking for math research computations. Local-first, no servers,
 no accounts, no config.
@@ -25,9 +25,9 @@ provenance answers:
   computation can be run again and checked against the original result, bit
   for bit
 
-`qprov` is a small Python library and command-line tool that captures this
+`claimtrail` is a small Python library and command-line tool that captures this
 automatically. You add one line above a function. Every time that function
-runs, qprov writes a record. Later, `qprov verify <id>` re-runs the
+runs, claimtrail writes a record. Later, `claimtrail verify <id>` re-runs the
 computation and confirms the output is identical. If it is not, you find out
 loudly.
 
@@ -36,23 +36,23 @@ hand to a reader so they can reproduce any number in the paper.
 
 It is designed around a common failure mode in research computing: when two
 computations of the same quantity disagree, the cause is often two machines
-reading different data files that happen to share a name. Most of qprov's
+reading different data files that happen to share a name. Most of claimtrail's
 design is a response to that class of mistake; the goal is that a quiet drift
 between code, data, and the written claim becomes a loud, immediate failure.
 
 ## Who is this for
 
-qprov is built so that it is usable whether or not you think of yourself as
+claimtrail is built so that it is usable whether or not you think of yourself as
 a programmer.
 
-**If you write Python.** Add `@qprov.tracked` above a function. That is the
+**If you write Python.** Add `@claimtrail.tracked` above a function. That is the
 whole integration. The function still returns exactly what it returned
 before; the recording happens as a side effect.
 
 **If you mostly write papers, not code.** You do not have to touch the
-library at all. The `qprov` command-line tool lets you list what has been
+library at all. The `claimtrail` command-line tool lets you list what has been
 recorded, inspect any record, re-run and verify it, and check a LaTeX
-manuscript against the store with `qprov audit-paper`. The decorator is
+manuscript against the store with `claimtrail audit-paper`. The decorator is
 wired in once; from then on you work through the CLI.
 
 There is nothing to set up beyond `pip install`. The store is a SQLite
@@ -73,7 +73,7 @@ For the test and lint tools as well:
 pip install -e .[dev]
 ```
 
-Either way, the `qprov` command becomes available on your `PATH`.
+Either way, the `claimtrail` command becomes available on your `PATH`.
 
 ## Quickstart
 
@@ -81,23 +81,23 @@ The 30-second version: decorate a function, run it, record a claim about the
 result, export the claims to LaTeX.
 
 ```python
-import qprov
+import claimtrail
 
-@qprov.tracked(tags={"experiment": "G1.2", "constant": "pi"})
+@claimtrail.tracked(tags={"experiment": "G1.2", "constant": "pi"})
 def compute_qreal_pi(N):
     return _heavy_computation(N)
 
 result = compute_qreal_pi(N=5000)
-# A row is now in .qprov/qprov.sqlite, with a gzipped payload on disk.
+# A row is now in .claimtrail/claimtrail.sqlite, with a gzipped payload on disk.
 
-qprov.claim(
+claimtrail.claim(
     "The first nonzero coefficient of [pi]_q after q^45 is at q^46",
-    computation_id=qprov.find(tags={"constant": "pi"})[0].id,
+    computation_id=claimtrail.find(tags={"constant": "pi"})[0].id,
     value_numeric=46,
     tags={"paper": "my-paper"},   # gated: must point to a computation
 )
 
-qprov.export_latex(output="claims.tex")
+claimtrail.export_latex(output="claims.tex")
 ```
 
 The decorator is transparent: the wrapped function returns its original
@@ -123,9 +123,9 @@ If your function reads a CSV (or any file) by path, declare the path
 parameter so the file's contents contribute to the id:
 
 ```python
-import qprov
+import claimtrail
 
-@qprov.tracked(data_files=["csv_path"])
+@claimtrail.tracked(data_files=["csv_path"])
 def scan_csv_for_modular_pattern(csv_path, modulus):
     with open(csv_path) as f:
         ...
@@ -143,35 +143,35 @@ parameter.
 Manual callers can build the descriptor directly:
 
 ```python
-from qprov import canonical_file
+from claimtrail import canonical_file
 scan(canonical_file("./data/qreal_phi_5000.csv"))
 ```
 
 ## The command-line tool
 
 ```text
-qprov init                            create .qprov/ in cwd
-qprov list                            recent computations as a table
-qprov show <id>                       full record (use --payload to dump the payload too)
-qprov find --tag k=v                  search by tag, function, time
-qprov claim "..." --link <id>         register a claim
+claimtrail init                            create .claimtrail/ in cwd
+claimtrail list                            recent computations as a table
+claimtrail show <id>                       full record (use --payload to dump the payload too)
+claimtrail find --tag k=v                  search by tag, function, time
+claimtrail claim "..." --link <id>         register a claim
    [--value N] [--notes ...]
    [--tag paper=<slug>]               paper-tagged claims require --link
    [--allow-unbacked]                 escape valve for staged claims
-qprov export-latex --since DATE       render claims to LaTeX
-qprov verify <id>                     re-run computation, assert hash match
-qprov lint                            flag orphan / dangling paper claims
-qprov gc [--dry-run]                  delete computations not referenced by any claim
-qprov audit-paper <tex>               diff a .tex source against the store
-qprov properties --list | --check     inspect / re-run property-based checks
+claimtrail export-latex --since DATE       render claims to LaTeX
+claimtrail verify <id>                     re-run computation, assert hash match
+claimtrail lint                            flag orphan / dangling paper claims
+claimtrail gc [--dry-run]                  delete computations not referenced by any claim
+claimtrail audit-paper <tex>               diff a .tex source against the store
+claimtrail properties --list | --check     inspect / re-run property-based checks
 ```
 
 `<id>` is a 32-char blake2b digest, but any unique prefix (for example 12
 chars) is accepted.
 
 `--store PATH` overrides the default store location. The default is the
-nearest ancestor `.qprov/` directory, falling back to `cwd/.qprov`. The
-environment variable `QPROV_HOME` works as another override.
+nearest ancestor `.claimtrail/` directory, falling back to `cwd/.claimtrail`. The
+environment variable `CLAIMTRAIL_HOME` works as another override.
 
 ## Try the demo
 
@@ -200,7 +200,7 @@ To make the LaTeX compile, define `\fact` and `\provid` in your preamble:
 Then verify any of the recorded computations:
 
 ```bash
-qprov --store .qprov verify bd9390f53345
+claimtrail --store .claimtrail verify bd9390f53345
 # OK  bd9390f53345afa6eecf38e9428ed5c9  hash=658168982bc24a4835e5c2ff31b1e410
 ```
 
@@ -218,25 +218,25 @@ For every successful call:
 - `hostname`, `cpu_model`, `ram_gb`, `gpu_model`, `python_version`,
   `sage_version`, `os_info` - via psutil + platform + optional pynvml
 - `started_at`, `ended_at`, `runtime_seconds`
-- payload at `.qprov/payloads/{id[:2]}/{id}.json.gz` containing args, kwargs,
+- payload at `.claimtrail/payloads/{id[:2]}/{id}.json.gz` containing args, kwargs,
   result, stdout, stderr, warnings
 
 For exceptions: the same row, with `status='error'`, plus `error_type`,
 `error_message`, and the full traceback in the payload. The exception is
-re-raised, so qprov never changes program behavior.
+re-raised, so claimtrail never changes program behavior.
 
 ## Integration guide
 
-`INTEGRATION.md` is a step-by-step guide for attaching qprov provenance to a
+`INTEGRATION.md` is a step-by-step guide for attaching claimtrail provenance to a
 LaTeX manuscript: where the store lives, the two ways a computation enters it,
 how claims and tags work, how to generate `claims.tex`, and the common
 pitfalls. After wiring the `\fact{...}` macros into the manuscript, run
-`qprov audit-paper main.tex` to confirm every numerical claim lines up with
+`claimtrail audit-paper main.tex` to confirm every numerical claim lines up with
 the store.
 
 ## Sage interop
 
-qprov detects Sage at runtime via a soft `import sage.rings.integer`. When
+claimtrail detects Sage at runtime via a soft `import sage.rings.integer`. When
 Sage is not installed, the package still works on plain Python values; the
 Sage-only types are simply never seen.
 
@@ -244,7 +244,7 @@ The serializer uses canonical JSON with explicit type tags so that
 `Integer(10**60)`, Sage rationals, and Sage Laurent series round-trip
 through gzipped JSON without losing precision. The single most common
 failure mode in math tooling is `json.dump` on a Sage `Integer` raising
-`TypeError`; qprov's `canonical_dumps` handles this cleanly.
+`TypeError`; claimtrail's `canonical_dumps` handles this cleanly.
 
 The Sage-backed test (`tests/test_sage_integration.py`) decorates a
 `q_real_truncated` function and verifies bit-identical output. It is skipped
@@ -252,14 +252,14 @@ when Sage is not on the path; on a machine with Sage 10.8 it should pass.
 
 ## Verify and reproducibility
 
-`qprov verify <id>` imports the original function from its recorded module,
+`claimtrail verify <id>` imports the original function from its recorded module,
 re-invokes it with the recorded args and kwargs, and compares the output
 hash byte for byte. The computation must be deterministic: any uncontrolled
 randomness will cause `verify` to fail. The recommended pattern is to seed
 inside the decorated function so the seed shows up in the input hash:
 
 ```python
-@qprov.tracked
+@claimtrail.tracked
 def sample(n, seed):
     random.seed(seed)
     return [random.random() for _ in range(n)]
@@ -290,7 +290,7 @@ The library covers five capability lines:
   computation.
 - Payload-tamper detection (`payload_hash`), strict collision semantics on the
   store, and FK + CHECK constraints on claims.
-- `qprov audit-paper <tex>` walks a LaTeX source and reports
+- `claimtrail audit-paper <tex>` walks a LaTeX source and reports
   MATCH / DRIFT / MISSING / ORPHAN per `\provid{...}`.
 - Property-based tracking: `@tracked(properties=[...])` runs Hypothesis-driven
   metamorphic checks before the row is written.
@@ -298,11 +298,11 @@ The library covers five capability lines:
 ## Project layout
 
 ```
-qprov/
+claimtrail/
 ├── pyproject.toml
 ├── README.md
-├── INTEGRATION.md         how paper authors wire qprov into a manuscript
-├── src/qprov/
+├── INTEGRATION.md         how paper authors wire claimtrail into a manuscript
+├── src/claimtrail/
 │   ├── __init__.py        public API
 │   ├── tracking.py        @tracked decorator + payload assembly
 │   ├── inputs.py          canonical_file(), hash_file(), data_files plumbing
@@ -340,7 +340,7 @@ qprov/
 - No claim numeric-value index. Sorting claims by `value_numeric` works via
   SQL `ORDER BY` but is not exposed in the CLI.
 - Structured claim assertions are still free-form prose. A claim that
-  asserts "biconditional, 4998 indices" is opaque to qprov; only the
+  asserts "biconditional, 4998 indices" is opaque to claimtrail; only the
   computation's output_hash is machine-checked. A future column
   `claim_assertions` (JSON) could capture direction / N / counts so a re-run
   can fail loudly when prose drifts from data.

@@ -1,4 +1,4 @@
-"""Audit a paper's ``\\provid{...}`` references against the qprov store.
+"""Audit a paper's ``\\provid{...}`` references against the claimtrail store.
 
 This guards against paper-vs-record drift that plain proofreading misses:
 a claim's prose can state a stronger result than the linked computation
@@ -9,7 +9,7 @@ paragraph's numeric assertions to the linked computation's outputs.
 
 ``audit_paper`` is that check. It walks a LaTeX source, extracts each
 ``\\provid{...}`` reference and the paragraph it sits in, looks up the
-matching claim or computation in the qprov store, and emits an
+matching claim or computation in the claimtrail store, and emits an
 :class:`AuditEntry` with one of four statuses:
 
 - ``MATCH``: every number in the paragraph appears (within tolerance)
@@ -451,7 +451,7 @@ def _resolve_provid(
     """Try to resolve ``provid`` as a claim id first, then as a computation
     id. The claim/computation pair returned is (None if not found).
 
-    The auto-generated `claims.tex` from `qprov export-latex` writes
+    The auto-generated `claims.tex` from `claimtrail export-latex` writes
     *computation* ids inside ``\\provid{...}``, while paper authors who
     hand-cite a named claim write the *claim* id. Both forms are valid;
     the audit accepts either.
@@ -542,7 +542,7 @@ def render_report(report: AuditReport, output_format: str = "text") -> str:
 
 def _render_text(report: AuditReport) -> str:
     lines = [
-        f"qprov audit-paper {report.tex_path}",
+        f"claimtrail audit-paper {report.tex_path}",
         f"  {report.summary}",
         "",
     ]
@@ -585,7 +585,7 @@ def _render_json(report: AuditReport) -> str:
 
 def _render_markdown(report: AuditReport) -> str:
     lines = [
-        f"# qprov audit-paper report",
+        f"# claimtrail audit-paper report",
         "",
         f"- **Source**: `{report.tex_path}`",
         f"- **Summary**: "

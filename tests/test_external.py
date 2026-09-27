@@ -5,10 +5,10 @@ import json
 
 import pytest
 
-import qprov
-from qprov import register_external
-from qprov.serialize import hash_value
-from qprov.store import get_store
+import claimtrail
+from claimtrail import register_external
+from claimtrail.serialize import hash_value
+from claimtrail.store import get_store
 
 
 def test_basic_registration_creates_visible_row():
@@ -20,7 +20,7 @@ def test_basic_registration_creates_visible_row():
         code_sha="abc123",
         runtime_seconds=42.5,
     )
-    comps = qprov.find()
+    comps = claimtrail.find()
     assert len(comps) == 1
     c = comps[0]
     assert c.id == cid
@@ -39,7 +39,7 @@ def test_input_and_output_hashes_match_canonical_form():
         outputs=outputs,
         code_sha="sha",
     )
-    c = qprov.get(cid)
+    c = claimtrail.get(cid)
     assert c.input_hash == hash_value(inputs)
     assert c.output_hash == hash_value(outputs)
 
@@ -51,7 +51,7 @@ def test_outputs_none_leaves_output_hash_none():
         outputs=None,
         code_sha="sha",
     )
-    c = qprov.get(cid)
+    c = claimtrail.get(cid)
     assert c.output_hash is None
 
 
@@ -67,7 +67,7 @@ def test_repeated_registration_is_idempotent():
     id2 = register_external(**kwargs)
     id3 = register_external(**kwargs)
     assert id1 == id2 == id3
-    assert len(qprov.find()) == 1
+    assert len(claimtrail.find()) == 1
 
 
 def test_different_inputs_make_different_rows():
@@ -75,14 +75,14 @@ def test_different_inputs_make_different_rows():
     register_external(inputs={"d_X": 3, "d_q": 12}, **base)
     register_external(inputs={"d_X": 3, "d_q": 16}, **base)
     register_external(inputs={"d_X": 4, "d_q": 16}, **base)
-    assert len(qprov.find()) == 3
+    assert len(claimtrail.find()) == 3
 
 
 def test_different_code_sha_makes_different_rows():
     base = dict(function_name="f", inputs={"x": 1}, outputs={"k": 0})
     register_external(code_sha="sha1", **base)
     register_external(code_sha="sha2", **base)
-    assert len(qprov.find()) == 2
+    assert len(claimtrail.find()) == 2
 
 
 def test_tags_are_persisted_and_filterable():
@@ -100,7 +100,7 @@ def test_tags_are_persisted_and_filterable():
         code_sha="sha",
         tags={"paper": "cubic-negative", "phase": "part-1", "retroactive": True},
     )
-    p2 = qprov.find(tags={"phase": "part-2"})
+    p2 = claimtrail.find(tags={"phase": "part-2"})
     assert len(p2) == 1
     assert p2[0].tags["phase"] == "part-2"
     assert p2[0].tags["retroactive"] == "True"
@@ -157,7 +157,7 @@ def test_register_from_real_json_file(tmp_path):
         tags={"paper": "cubic-negative", "phase": "part-2", "alpha": data["alpha"], "retroactive": True},
         source_file=str(src),
     )
-    c = qprov.get(cid)
+    c = claimtrail.get(cid)
     assert c is not None
     assert c.function_name == "kernel_search_part2_v1"
     assert c.tags["alpha"] == "cbrt2"
@@ -194,7 +194,7 @@ def test_claim_can_link_to_external_computation():
         code_sha="sha",
         tags={"paper": "cubic-negative"},
     )
-    claim_id = qprov.claim(
+    claim_id = claimtrail.claim(
         "no P(X, q) of bidegree at most (3, 12) annihilates [cbrt2]_q modulo q^400",
         computation_id=cid,
     )

@@ -1,7 +1,7 @@
 [project]
-name = "qprov"
-version = "0.4.0"
-description = "Provenance tracker for math research computations"
+name = "claimtrail"
+version = "0.5.0"
+description = "Every number in a report keeps a trail back to the computation that produced it. Record, re-run, verify, audit."
 authors = [{name = "Patrick Taylor"}]
 readme = "README.md"
 requires-python = ">=3.11"
@@ -18,14 +18,15 @@ dev = ["pytest>=7", "pytest-cov", "ruff"]
 gpu = ["pynvml>=11"]
 
 [project.scripts]
-qprov = "qprov.cli:main"
+claimtrail = "claimtrail.cli:main"
+qprov = "claimtrail.cli:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/qprov"]
+packages = ["src/claimtrail", "src/qprov"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import pytest
 
-import qprov
-from qprov import tracked
-from qprov.serialize import hash_value
-from qprov.store import get_store
+import claimtrail
+from claimtrail import tracked
+from claimtrail.serialize import hash_value
+from claimtrail.store import get_store
 
 
 def test_decorator_returns_value_unchanged():
@@ -26,7 +26,7 @@ def test_one_call_writes_one_row_with_correct_hashes():
     out = square(7)
     assert out == 49
 
-    comps = qprov.find()
+    comps = claimtrail.find()
     assert len(comps) == 1
     c = comps[0]
     assert c.function_name == "square"
@@ -43,7 +43,7 @@ def test_payload_contains_args_kwargs_and_result():
 
     shout("hi", suffix="?!")
 
-    c = qprov.find()[0]
+    c = claimtrail.find()[0]
     payload = get_store().read_payload(c.id)
     assert payload["args"] == ["hi"]
     assert payload["kwargs"] == {"suffix": "?!"}
@@ -60,7 +60,7 @@ def test_id_is_idempotent_on_repeat():
     double(11)
     double(11)
     double(11)
-    comps = qprov.find()
+    comps = claimtrail.find()
     assert len(comps) == 1, "repeats should collapse to one row"
 
 
@@ -72,7 +72,7 @@ def test_different_inputs_create_different_rows():
     double(1)
     double(2)
     double(3)
-    comps = qprov.find()
+    comps = claimtrail.find()
     assert len(comps) == 3
     assert len({c.id for c in comps}) == 3
 
@@ -83,7 +83,7 @@ def test_tags_recorded():
         return N * N
 
     f(10)
-    c = qprov.find(tags={"constant": "pi"})
+    c = claimtrail.find(tags={"constant": "pi"})
     assert len(c) == 1
     assert c[0].tags == {"experiment": "G1.2", "constant": "pi"}
 
@@ -96,7 +96,7 @@ def test_exception_is_recorded_and_reraised():
     with pytest.raises(ValueError):
         bad()
 
-    comps = qprov.find()
+    comps = claimtrail.find()
     assert len(comps) == 1
     c = comps[0]
     assert c.status == "error"
@@ -114,19 +114,19 @@ def test_stdout_is_captured_in_payload():
         return 1
 
     noisy()
-    c = qprov.find()[0]
+    c = claimtrail.find()[0]
     payload = get_store().read_payload(c.id)
     assert "hello world" in payload["stdout"]
 
 
 def test_unavailable_source_does_not_crash():
     """A function defined via exec / lambda has no inspect.getsource."""
-    src = "from qprov import tracked\n@tracked\ndef anon(x): return x + 1\n"
+    src = "from claimtrail import tracked\n@tracked\ndef anon(x): return x + 1\n"
     ns: dict = {}
     exec(compile(src, "<dynamic>", "exec"), ns)
     anon = ns["anon"]
     assert anon(5) == 6
-    c = qprov.find()[0]
+    c = claimtrail.find()[0]
     payload = get_store().read_payload(c.id)
     assert payload["function_source"] == "<unavailable>"
 
@@ -136,7 +136,7 @@ def test_hardware_fields_populated():
     def f():
         return 1
     f()
-    c = qprov.find()[0]
+    c = claimtrail.find()[0]
     assert c.hostname  # always populated
     assert c.python_version  # always populated
     # cpu_model and ram_gb may be None on locked-down systems, that's OK

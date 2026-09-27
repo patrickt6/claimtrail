@@ -27,14 +27,14 @@ from typing import Any, Callable, Iterable, TypeVar
 
 from . import gitinfo, hardware
 from .inputs import auto_canonicalize, collect_data_hashes
-from .properties import Property, PropertyResult, QprovPropertyError
+from .properties import Property, PropertyResult, ClaimtrailPropertyError
 from .serialize import canonical_dumps, hash_text, hash_value
 from .store import Computation, get_store, utc_now_iso
 
 F = TypeVar("F", bound=Callable[..., Any])
 
 
-class QprovHashWarning(UserWarning):
+class ClaimtrailHashWarning(UserWarning):
     """Warning category emitted when @tracked detects an input-hashing gap.
 
     Two situations trigger it:
@@ -50,12 +50,12 @@ class QprovHashWarning(UserWarning):
 
     Pass ``data_files=[...]`` to silence (1). Pass
     ``require_data_files=True`` to escalate either case into a
-    ``QprovHashError`` or ``QprovFileMissingError`` instead of a soft
+    ``ClaimtrailHashError`` or ``ClaimtrailFileMissingError`` instead of a soft
     warning.
     """
 
 
-class QprovHashError(RuntimeError):
+class ClaimtrailHashError(RuntimeError):
     """Raised at decoration time when ``require_data_files=True`` and
     @tracked detects a file-like parameter not declared in
     ``data_files=[...]``. The recommended default for paper-tagged
@@ -64,24 +64,24 @@ class QprovHashError(RuntimeError):
     """
 
 
-class QprovFileMissingError(FileNotFoundError):
+class ClaimtrailFileMissingError(FileNotFoundError):
     """Raised at call time when ``require_data_files=True`` and the
     declared data file does not resolve to an existing file on disk.
     Replaces the pre-v0.2 silent fallback to path-string hashing.
     """
 
 
-class QprovTraversalError(RuntimeError):
+class ClaimtrailTraversalError(RuntimeError):
     """Raised by ``collect_data_hashes`` when the visitor exceeds its
     depth limit (default 16). Indicates a cyclic or pathologically
     deep input structure that cannot be safely fingerprinted.
     """
 
 
-class QprovPropertyWarning(UserWarning):
+class ClaimtrailPropertyWarning(UserWarning):
     """Warning category emitted when a warning-severity
     :class:`Property` attached to a ``@tracked`` function fails. The
-    qprov row is still written; the warning surfaces the partial
+    claimtrail row is still written; the warning surfaces the partial
     failure to test harnesses and interactive callers.
     """
 
@@ -248,9 +248,9 @@ def tracked(
         @tracked(data_files=["csv_path"], require_data_files=True)
         def scan(csv_path): ...
         # Recommended default for paper-tagged work. The decorator raises
-        # QprovHashError at decoration time if the function has a
+        # ClaimtrailHashError at decoration time if the function has a
         # file-like parameter not in data_files, and the underlying
-        # auto_canonicalize raises QprovFileMissingError at call time if
+        # auto_canonicalize raises ClaimtrailFileMissingError at call time if
         # the declared path does not resolve. Replaces the earlier soft
         # path-only fallback.
 
@@ -260,28 +260,28 @@ def tracked(
        ``_file``, ``_csv``, ``_json``, or ``_pkl`` (or are annotated as
        ``Path``/``PathLike``/``str`` and contain ``"path"`` in the
        name) and are not listed in ``data_files=[...]`` raise
-       ``QprovHashError`` instead of emitting a ``QprovHashWarning``.
+       ``ClaimtrailHashError`` instead of emitting a ``ClaimtrailHashWarning``.
     2. At call time, listed paths that do not resolve raise
-       ``QprovFileMissingError`` instead of falling back to
+       ``ClaimtrailFileMissingError`` instead of falling back to
        path-string hashing.
     3. Whether or not ``require_data_files`` is True, a
-       ``QprovHashWarning`` is always emitted at decoration time when
+       ``ClaimtrailHashWarning`` is always emitted at decoration time when
        a file-like parameter is undeclared, so test suites and
        interactive callers see the gap even on the default soft path.
 
     The ``properties`` argument attaches a list of metamorphic
     invariants. Each
-    :class:`qprov.properties.Property` carries a name, a check function
+    :class:`claimtrail.properties.Property` carries a name, a check function
     ``(inputs, outputs) -> PropertyResult``, a description, and a
-    severity. After the wrapped function completes and BEFORE the qprov
+    severity. After the wrapped function completes and BEFORE the claimtrail
     row is written, every property is run; results are stored in the
     new ``computations.property_results`` column (JSON). A failed
     error-severity property raises
-    :class:`qprov.properties.QprovPropertyError` and BLOCKS the write,
+    :class:`claimtrail.properties.ClaimtrailPropertyError` and BLOCKS the write,
     so the offending computation never lands in the store. A failed
     warning-severity property logs and writes. The check functions are
     free to use Hypothesis internally for property-based random-input
-    testing; see :mod:`qprov.properties_qnumbers` for the project-
+    testing; see :mod:`claimtrail.properties_qnumbers` for the project-
     specific property declarations.
     """
     data_file_names = tuple(data_files or ())
@@ -293,7 +293,7 @@ def tracked(
         if undeclared:
             decl_hint = ", ".join(repr(n) for n in undeclared)
             warn_message = (
-                f"qprov @tracked: function {func.__qualname__!r} has "
+                f"claimtrail @tracked: function {func.__qualname__!r} has "
                 f"file-like parameter(s) {list(undeclared)!r} but they "
                 f"were not declared in data_files=[...]. Hashes will "
                 f"not include file content; this is the pre-v0.2 "
@@ -301,10 +301,10 @@ def tracked(
                 f"silence (or require_data_files=True to hard-fail)."
             )
             if require_data_files:
-                raise QprovHashError(warn_message)
+                raise ClaimtrailHashError(warn_message)
             _warnings.warn(
                 warn_message,
-                category=QprovHashWarning,
+                category=ClaimtrailHashWarning,
                 stacklevel=2,
             )
 
@@ -318,7 +318,7 @@ def tracked(
                 # the user-visible noise is at most one line.
                 _warnings.warn(
                     warn_message,
-                    category=QprovHashWarning,
+                    category=ClaimtrailHashWarning,
                     stacklevel=2,
                 )
             store = get_store()
@@ -392,7 +392,7 @@ def tracked(
             ended = utc_now_iso()
 
             # Run declared property checks BEFORE writing to the store.
-            # An error-severity failure raises QprovPropertyError and
+            # An error-severity failure raises ClaimtrailPropertyError and
             # blocks the write, surfacing the bug at the moment of the
             # offending computation. Warning-severity failures log and
             # write.
@@ -421,7 +421,7 @@ def tracked(
                         "description": prop.description,
                     }
                     if not pr.passed and prop.severity == "error":
-                        raise QprovPropertyError(
+                        raise ClaimtrailPropertyError(
                             property_name=prop.name,
                             description=prop.description,
                             result=pr,
@@ -429,10 +429,10 @@ def tracked(
                         )
                     if not pr.passed and prop.severity == "warning":
                         _warnings.warn(
-                            f"qprov property {prop.name!r} failed "
+                            f"claimtrail property {prop.name!r} failed "
                             f"(warning-severity, computation will still "
                             f"be written): {pr.detail}",
-                            category=QprovPropertyWarning,
+                            category=ClaimtrailPropertyWarning,
                             stacklevel=2,
                         )
 

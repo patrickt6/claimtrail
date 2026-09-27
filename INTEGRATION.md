@@ -1,19 +1,19 @@
-# qprov integration guide for paper authors
+# claimtrail integration guide for paper authors
 
-This guide shows how to attach qprov provenance to a LaTeX manuscript, so that
+This guide shows how to attach claimtrail provenance to a LaTeX manuscript, so that
 every numerical claim in the paper points to a recorded computation in the
-qprov store and a reader can run `qprov verify <id>` to reproduce it.
+claimtrail store and a reader can run `claimtrail verify <id>` to reproduce it.
 
-## The qprov store
+## The claimtrail store
 
-By default the store is the nearest ancestor `.qprov/` directory, falling back
-to `./.qprov`. Override it with the `QPROV_HOME` environment variable or
-`qprov.set_store_root(path)`.
+By default the store is the nearest ancestor `.claimtrail/` directory, falling back
+to `./.claimtrail`. Override it with the `CLAIMTRAIL_HOME` environment variable or
+`claimtrail.set_store_root(path)`.
 
 Store contents:
 
-- `.qprov/qprov.sqlite` - SQLite metadata (computations, tags, claims)
-- `.qprov/payloads/{id[:2]}/{id}.json.gz` - one gzipped JSON per computation,
+- `.claimtrail/claimtrail.sqlite` - SQLite metadata (computations, tags, claims)
+- `.claimtrail/payloads/{id[:2]}/{id}.json.gz` - one gzipped JSON per computation,
   holding inputs, outputs, source code, and captured stdout/stderr
 
 A single store can hold the computations behind several papers. Filter a
@@ -26,9 +26,9 @@ paper's claims with the `paper=` tag.
 For computations you are writing now:
 
 ```python
-import qprov
+import claimtrail
 
-@qprov.tracked(tags={"paper": "your-paper", "experiment": "X.Y"})
+@claimtrail.tracked(tags={"paper": "your-paper", "experiment": "X.Y"})
 def compute_thing(N):
     ...
     return result
@@ -44,7 +44,7 @@ string. Without it, two machines holding files under the same name with
 different content silently collapse to one row:
 
 ```python
-@qprov.tracked(
+@claimtrail.tracked(
     tags={"paper": "your-paper"},
     data_files=["csv_path"],
 )
@@ -55,7 +55,7 @@ def scan_csv(csv_path, N):
 The decorator replaces `csv_path` with a `canonical_file(...)` descriptor
 before hashing. The descriptor carries the file's blake2b digest, size, and
 mtime; the digest is what feeds the input hash. The resulting row has a
-non-NULL `canonical_data_hash` column, so `qprov lint` will not flag it as
+non-NULL `canonical_data_hash` column, so `claimtrail lint` will not flag it as
 NOHASH.
 
 ### (b) Retroactive: `register_external(...)`
@@ -63,9 +63,9 @@ NOHASH.
 For pre-existing computations whose output is already on disk:
 
 ```python
-import qprov
+import claimtrail
 
-qprov.register_external(
+claimtrail.register_external(
     function_name="my_search_v1",            # logical name; part of the id
     inputs={"target": "x", "N": 2000},       # dict; hashed for the id
     outputs={"result": 0},                   # any JSON-serializable value
@@ -88,7 +88,7 @@ A claim is a one-line factual statement, optionally linked to a computation.
 Claims are what end up in the paper as `\fact{...}` macros.
 
 ```python
-qprov.claim(
+claimtrail.claim(
     "No polynomial of bidegree at most (6, 50) annihilates [x]_q modulo q^2000.",
     computation_id="<some_comp_id>",
     claim_id="emptiness_x",            # stable id; re-runs overwrite
@@ -98,7 +98,7 @@ qprov.claim(
 
 ### The paper-tag gate
 
-When a claim carries `tags={"paper": "..."}`, qprov requires a non-NULL
+When a claim carries `tags={"paper": "..."}`, claimtrail requires a non-NULL
 `computation_id`. Calls without one raise `UnbackedPaperClaimError`, so a
 paper-bound statement can never silently render as `\provid{None}` in the
 exported LaTeX.
@@ -109,7 +109,7 @@ example, writing a draft from notes while a long scan is still running), pass
 
 ```python
 # Stage now:
-qprov.claim(
+claimtrail.claim(
     "A statement to be backed once the scan finishes.",
     tags={"paper": "your-paper"},
     allow_unbacked=True,
@@ -117,7 +117,7 @@ qprov.claim(
 )
 
 # Back-attach after the computation registers:
-qprov.claim(
+claimtrail.claim(
     "A statement to be backed once the scan finishes.",
     tags={"paper": "your-paper"},
     computation_id="<the_real_comp_id>",
@@ -125,7 +125,7 @@ qprov.claim(
 )
 ```
 
-`qprov lint` flags every unbacked paper claim, so a pre-flight catches anything
+`claimtrail lint` flags every unbacked paper claim, so a pre-flight catches anything
 left staged.
 
 ### Three claim-id strategies
@@ -144,7 +144,7 @@ stale claims.
 ## Tags
 
 Every computation and most claims carry tags. Tags are how the paper-level
-filter works (`qprov export-latex --tag paper=your-paper`). Useful conventions:
+filter works (`claimtrail export-latex --tag paper=your-paper`). Useful conventions:
 
 - `paper`: short slug for the paper a record contributes to.
 - `phase`: lifecycle stage (`part-1`, `validation`, ...).
@@ -154,7 +154,7 @@ filter works (`qprov export-latex --tag paper=your-paper`). Useful conventions:
 Find by tag:
 
 ```python
-qprov.find(tags={"paper": "your-paper", "phase": "part-1"}, limit=500)
+claimtrail.find(tags={"paper": "your-paper", "phase": "part-1"}, limit=500)
 ```
 
 ## Generating `claims.tex`
@@ -163,7 +163,7 @@ The CLI exports every claim in the store as a `\fact{...}` macro with a
 `\footnote{Provenance: \provid{<id>}}` attached. Filter by tag:
 
 ```bash
-python -m qprov.cli export-latex \
+python -m claimtrail.cli export-latex \
     --tag paper=your-paper \
     --output claims.tex
 ```
@@ -189,7 +189,7 @@ Then footnote each numerical statement with its claim id:
 ```latex
 \begin{theorem}
 ... \footnote{Claim \provid{emptiness\_x}; reproducible via
-\texttt{qprov verify <id>}.}
+\texttt{claimtrail verify <id>}.}
 \end{theorem}
 ```
 
@@ -206,7 +206,7 @@ own computation and tag them so a reviewer can see that both were checked.
 ## Verifying a recorded computation
 
 ```bash
-qprov verify <comp_id>
+claimtrail verify <comp_id>
 ```
 
 This re-imports the original function from its recorded module, re-invokes it
@@ -217,7 +217,7 @@ up in the input hash.
 
 `verify` is only meaningful for `@tracked` computations. Records added via
 `register_external` are immutable records of work done elsewhere and cannot be
-re-run by qprov itself.
+re-run by claimtrail itself.
 
 ## Common pitfalls
 
@@ -225,20 +225,20 @@ re-run by qprov itself.
   insertion order or floating-point quirks, ids will differ. Use
   deterministic, JSON-serializable types.
 - **Claims pile up.** Without `claim_id` or `deterministic_id`, every
-  `qprov.claim(...)` call mints a new row, so re-running a script duplicates.
+  `claimtrail.claim(...)` call mints a new row, so re-running a script duplicates.
   Pin claim ids in batch scripts.
 - **Filename-only file inputs.** A tracked function that takes `csv_path` as a
   plain string and reads it inside the body hashes only the path string. Two
   files with the same name but different contents then collapse to one id.
   Declare `data_files=["csv_path"]`, or wrap the call site in
-  `canonical_file(...)`. `qprov lint` flags these as NOHASH advisories.
-- **Paper-tagged claim with no computation.** Calling `qprov.claim(...,
+  `canonical_file(...)`. `claimtrail lint` flags these as NOHASH advisories.
+- **Paper-tagged claim with no computation.** Calling `claimtrail.claim(...,
   tags={"paper": "..."}, computation_id=None)` raises
   `UnbackedPaperClaimError`. Stage with `allow_unbacked=True` and back-attach
   before exporting LaTeX.
 
 ## Asking for help
 
-If something in qprov is not doing what this guide claims, prefer reading the
+If something in claimtrail is not doing what this guide claims, prefer reading the
 source over guessing: the package is small. The public API surface in
-`src/qprov/__init__.py` is the source of truth for what exists.
+`src/claimtrail/__init__.py` is the source of truth for what exists.

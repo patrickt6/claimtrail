@@ -1,9 +1,9 @@
 """SQLite store + gzipped JSON payload directory.
 
-Layout under store_root (default `./.qprov`):
+Layout under store_root (default `./.claimtrail`):
 
-    .qprov/
-      qprov.sqlite        metadata for computations, tags, claims
+    .claimtrail/
+      claimtrail.sqlite        metadata for computations, tags, claims
       payloads/
         ab/
           ab1234...json.gz   payload keyed by computation id
@@ -43,7 +43,7 @@ intent under a clearer name; ``output_hash`` continues to support
 
 INSERT semantics changed in v3 as well. ``computations`` and ``claims``
 no longer use ``INSERT OR REPLACE``: a duplicate id with differing
-content raises :class:`QprovCollisionError` instead of silently
+content raises :class:`ClaimtrailCollisionError` instead of silently
 clobbering. Duplicate ids with byte-identical content are still
 accepted as a no-op (this preserves register_external's documented
 idempotency). Tag tables continue to use ON CONFLICT UPDATE because
@@ -69,10 +69,10 @@ CURRENT_SCHEMA_VERSION = "4"
 PAYLOAD_HASH_ALGORITHM = "blake2b"
 PAYLOAD_HASH_DIGEST_SIZE = 16  # bytes -> 32 hex chars, matches hash_value/hash_text
 
-_log = logging.getLogger("qprov.store")
+_log = logging.getLogger("claimtrail.store")
 
 
-class QprovCollisionError(RuntimeError):
+class ClaimtrailCollisionError(RuntimeError):
     """Raised when a write attempts to insert a row whose id already
     exists in the store AND whose content differs from the existing
     row. v3's content-aware id makes this a near-impossible event in
@@ -96,7 +96,7 @@ class PayloadTamperedError(RuntimeError):
     out-of-band, or the store is corrupted, or the algorithm in
     ``output_hash_algorithm`` is no longer understood.
 
-    Use ``qprov show <id> --no-verify`` to bypass the check for
+    Use ``claimtrail show <id> --no-verify`` to bypass the check for
     forensics on an already-corrupted store.
     """
 
@@ -225,7 +225,12 @@ class Claim:
     unbacked: bool = False
 
 
-_DEFAULT_STORE_DIRNAME = ".qprov"
+_DEFAULT_STORE_DIRNAME = ".claimtrail"
+# Stores written before the rename live under `.qprov/qprov.sqlite`. They
+# are discovered and opened in place; nothing is moved or renamed.
+_LEGACY_STORE_DIRNAME = ".qprov"
+_DB_FILENAME = "claimtrail.sqlite"
+_LEGACY_DB_FILENAME = "qprov.sqlite"
 _store_singleton: "Store | None" = None
 _store_root_override: Path | None = None
 _store_lock = threading.Lock()
@@ -243,9 +248,9 @@ def get_store() -> "Store":
 
     Resolution order:
       1. explicit override via set_store_root()
-      2. QPROV_HOME env var
-      3. nearest ancestor `.qprov/` directory
-      4. cwd / .qprov  (auto-created)
+      2. CLAIMTRAIL_HOME env var (legacy QPROV_HOME is also honored)
+      3. nearest ancestor `.claimtrail/` directory (or a legacy `.qprov/`)
+      4. cwd / .claimtrail  (auto-created)
     """
     global _store_singleton
     with _store_lock:
@@ -259,14 +264,15 @@ def get_store() -> "Store":
 def _resolve_store_root() -> Path:
     if _store_root_override is not None:
         return _store_root_override
-    env = os.environ.get("QPROV_HOME")
+    env = os.environ.get("CLAIMTRAIL_HOME") or os.environ.get("QPROV_HOME")
     if env:
         return Path(env).resolve()
     cwd = Path.cwd().resolve()
     for parent in [cwd, *cwd.parents]:
-        candidate = parent / _DEFAULT_STORE_DIRNAME
-        if candidate.is_dir():
-            return candidate
+        for dirname in (_DEFAULT_STORE_DIRNAME, _LEGACY_STORE_DIRNAME):
+            candidate = parent / dirname
+            if candidate.is_dir():
+                return candidate
     return cwd / _DEFAULT_STORE_DIRNAME
 
 
@@ -278,7 +284,10 @@ class Store:
 
     def __init__(self, root: str | os.PathLike):
         self.root = Path(root).resolve()
-        self.db_path = self.root / "qprov.sqlite"
+        self.db_path = self.root / _DB_FILENAME
+        legacy_db = self.root / _LEGACY_DB_FILENAME
+        if not self.db_path.exists() and legacy_db.exists():
+            self.db_path = legacy_db
         self.payloads_dir = self.root / "payloads"
         self._ensure()
 
@@ -388,7 +397,7 @@ class Store:
             backfilled += 1
         if backfilled or missing:
             _log.info(
-                "qprov v2->v3 payload_hash backfill: %d hashed, %d payloads missing",
+                "claimtrail v2->v3 payload_hash backfill: %d hashed, %d payloads missing",
                 backfilled, len(missing),
             )
 
@@ -426,7 +435,7 @@ class Store:
         if offenders:
             ids = ", ".join(repr(r["id"]) for r in offenders)
             raise RuntimeError(
-                f"qprov v2->v3 migration: {len(offenders)} paper-tagged "
+                f"claimtrail v2->v3 migration: {len(offenders)} paper-tagged "
                 f"claim(s) have no backing computation and no unbacked tag, "
                 f"which violates the v3 CHECK constraint: {ids}. Resolve "
                 f"(link a computation, mark unbacked, or delete) and "
@@ -501,7 +510,7 @@ class Store:
         Set ``verify_hash=False`` to skip the integrity check. The skip
         path is for forensics on a known-corrupted store; in normal
         operation the check is cheap and adds the only guard against
-        hand-edited payloads landing in ``qprov show`` and lint.
+        hand-edited payloads landing in ``claimtrail show`` and lint.
         """
         path = self.payload_path_for(comp_id)
         if not path.is_file():
@@ -519,7 +528,7 @@ class Store:
                         f"  recorded hash: {recorded}\n"
                         f"  current hash:  {actual}\n"
                         f"Either the payload file was edited or the store is "
-                        f"corrupted. Use `qprov show {comp_id[:12]} --no-verify` "
+                        f"corrupted. Use `claimtrail show {comp_id[:12]} --no-verify` "
                         f"to inspect."
                     )
         return canonical_loads(text)
@@ -535,7 +544,7 @@ class Store:
 
     # Columns whose equality means "same logical row." Differences in
     # any of these between an existing row and an incoming row trigger
-    # QprovCollisionError; differences in hostname/started_at/timings
+    # ClaimtrailCollisionError; differences in hostname/started_at/timings
     # are treated as re-runs of the same logical computation and the
     # existing row is kept. The new row's payload file (which is
     # content-determined and itself fingerprinted) is overwritten
@@ -557,7 +566,7 @@ class Store:
         primary-key conflict, compare the existing row against the
         incoming row on the identity columns. Identical -> silent
         no-op (preserves register_external's documented idempotency).
-        Different -> :class:`QprovCollisionError`.
+        Different -> :class:`ClaimtrailCollisionError`.
 
         ``force=True``: escalate to REPLACE. This is the pre-v3
         behavior and loses the audit history of the older row.
@@ -622,7 +631,7 @@ class Store:
                         # content by the caller, so the store stays
                         # internally consistent.
                         return
-                    raise QprovCollisionError(
+                    raise ClaimtrailCollisionError(
                         f"computation id {comp.id!r} already exists with "
                         f"different content.\n"
                         f"  existing: {_dict_for_collision_msg(existing, self._COMP_IDENTITY_COLUMNS)}\n"
@@ -718,7 +727,7 @@ class Store:
         Same collision semantics as :meth:`insert_computation`: a
         duplicate id whose content matches is a silent no-op; a
         duplicate id with different content raises
-        :class:`QprovCollisionError` unless ``force=True``.
+        :class:`ClaimtrailCollisionError` unless ``force=True``.
         """
         paper_tag = claim.paper_tag if claim.paper_tag is not None else claim.tags.get("paper")
         unbacked_flag = 1 if (
@@ -766,7 +775,7 @@ class Store:
                     }
                     if _row_matches_dict(existing, incoming_dict):
                         return
-                    raise QprovCollisionError(
+                    raise ClaimtrailCollisionError(
                         f"claim id {claim.id!r} already exists with different content.\n"
                         f"  existing: {_dict_for_collision_msg(existing, self._CLAIM_IDENTITY_COLUMNS)}\n"
                         f"  incoming: {incoming_dict}\n"
@@ -949,7 +958,7 @@ def _row_to_claim(row: sqlite3.Row) -> Claim:
 def _hash_payload_bytes(raw: bytes) -> str:
     """blake2b hex digest over uncompressed payload bytes.
 
-    Matches :func:`qprov.serialize.hash_text` digest_size so payload
+    Matches :func:`claimtrail.serialize.hash_text` digest_size so payload
     hashes are comparable with the other hashes in the store.
     """
     h = hashlib.blake2b(digest_size=PAYLOAD_HASH_DIGEST_SIZE)

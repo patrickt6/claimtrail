@@ -1,14 +1,14 @@
 """Property-based tracking primitives.
 
 Defines :class:`Property` and :class:`PropertyResult` dataclasses, plus the
-:class:`QprovPropertyError` exception that ``@tracked`` raises when an
+:class:`ClaimtrailPropertyError` exception that ``@tracked`` raises when an
 ``error``-severity property fails.
 
 A property is a metamorphic invariant the output of a ``@tracked`` function
 MUST satisfy. The check function is supplied by the user and receives the
 function's bound-input dict and the function's output dict; it returns a
 :class:`PropertyResult`. Properties are run after the wrapped function
-completes and BEFORE the qprov store row is written: a failed
+completes and BEFORE the claimtrail store row is written: a failed
 error-severity property blocks the write, surfacing the bug at the same
 moment the offending computation would otherwise have been recorded.
 
@@ -17,11 +17,11 @@ property-based-testing library for Python. Property check functions are free
 to use Hypothesis internally for metamorphic relations across random inputs
 (via ``hypothesis.given`` and ``hypothesis.strategies``); this module does
 not require it. The property-tests module
-(:mod:`qprov.properties_qnumbers`) does use Hypothesis for the MGO recursion
+(:mod:`claimtrail.properties_qnumbers`) does use Hypothesis for the MGO recursion
 and palindromicity checks.
 
 This module is a primitive layer; the project-specific properties live in
-:mod:`qprov.properties_qnumbers`.
+:mod:`claimtrail.properties_qnumbers`.
 """
 from __future__ import annotations
 
@@ -80,8 +80,8 @@ class Property:
             enforces in its docstring).
         description: One-line description for the lint output, e.g. "At
             q=1 the q-deformation reduces to alpha".
-        severity: ``"error"`` causes :class:`QprovPropertyError` to be
-            raised and the qprov write to be blocked; ``"warning"`` logs
+        severity: ``"error"`` causes :class:`ClaimtrailPropertyError` to be
+            raised and the claimtrail write to be blocked; ``"warning"`` logs
             but writes the row.
         hypothesis_strategy: Optional Hypothesis ``SearchStrategy`` the
             check uses. Stored on the dataclass for documentation and
@@ -97,12 +97,12 @@ class Property:
     hypothesis_strategy: Optional[Any] = None
 
 
-class QprovPropertyError(RuntimeError):
+class ClaimtrailPropertyError(RuntimeError):
     """Raised when an ``error``-severity property attached to a
     ``@tracked`` function fails.
 
     The wrapped function ran to completion, but its output violated a
-    declared metamorphic invariant. The qprov store row is NOT written;
+    declared metamorphic invariant. The claimtrail store row is NOT written;
     the offending computation is surfaced immediately rather than
     archived. Catch this exception only in test code; in production the
     intent is to halt and inspect.
@@ -124,7 +124,7 @@ class QprovPropertyError(RuntimeError):
         self.result = result
         self.function_name = function_name
         msg_lines = [
-            f"qprov property {property_name!r} failed",
+            f"claimtrail property {property_name!r} failed",
         ]
         if function_name:
             msg_lines.append(f"  on call to {function_name!r}")
@@ -145,6 +145,6 @@ class QprovPropertyError(RuntimeError):
 __all__ = [
     "Property",
     "PropertyResult",
-    "QprovPropertyError",
+    "ClaimtrailPropertyError",
     "Severity",
 ]

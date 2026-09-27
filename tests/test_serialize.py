@@ -5,7 +5,7 @@ import fractions
 
 import pytest
 
-from qprov.serialize import canonical_dumps, canonical_loads, hash_value
+from claimtrail.serialize import canonical_dumps, canonical_loads, hash_value
 
 
 def _roundtrip(value):

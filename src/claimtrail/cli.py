@@ -1,4 +1,4 @@
-"""Click CLI: qprov init | list | show | find | claim | export-latex | verify | gc | properties."""
+"""Click CLI: claimtrail init | list | show | find | claim | export-latex | verify | gc | properties."""
 from __future__ import annotations
 
 import json
@@ -35,12 +35,12 @@ def _store_for_cwd() -> Store:
 
 
 @click.group()
-@click.version_option(__version__, prog_name="qprov")
+@click.version_option(__version__, prog_name="claimtrail")
 @click.option(
     "--store",
     type=click.Path(),
     default=None,
-    help="Override store root (default: nearest .qprov ancestor or ./.qprov).",
+    help="Override store root (default: nearest .claimtrail ancestor or ./.claimtrail).",
 )
 def main(store: str | None) -> None:
     """Provenance tracker for math research computations."""
@@ -49,10 +49,10 @@ def main(store: str | None) -> None:
 
 
 @main.command()
-@click.option("--path", type=click.Path(), default=".", help="Where to create .qprov (default: cwd).")
+@click.option("--path", type=click.Path(), default=".", help="Where to create .claimtrail (default: cwd).")
 def init(path: str) -> None:
-    """Create a fresh .qprov/ store in the given directory."""
-    target = Path(path).resolve() / ".qprov"
+    """Create a fresh .claimtrail/ store in the given directory."""
+    target = Path(path).resolve() / ".claimtrail"
     if target.exists():
         click.echo(f"already exists: {target}")
         return
@@ -306,7 +306,7 @@ def lint(rerun_properties: bool) -> None:
 
     # Track which computations are linked from paper claims so we don't
     # rehash unrelated payloads. Payload integrity is only enforced for
-    # the paper-backing rows; lint a wider net via `qprov lint --all`
+    # the paper-backing rows; lint a wider net via `claimtrail lint --all`
     # in a future iteration if needed.
     backing_ids: set[str] = set()
 
@@ -437,7 +437,7 @@ def _check_payload_tamper(store: Store, comp) -> str | None:
         return f"payload file missing at {comp.payload_path}"
     except PayloadTamperedError as exc:
         # Extract the two hashes for a one-line summary; full message
-        # is in the exception body and emitted only by `qprov show`.
+        # is in the exception body and emitted only by `claimtrail show`.
         return str(exc).splitlines()[0]
     return None
 
@@ -449,7 +449,7 @@ def _qnumbers_property_registry() -> dict[str, list[Property]]:
     """Lazy import of the project-specific property bundles. Returns
     ``{function_name: [Property, ...]}``.
 
-    Imported lazily so qprov stays usable in environments without the
+    Imported lazily so claimtrail stays usable in environments without the
     q-numbers helper imports loaded yet.
     """
     global _QNUMBERS_REGISTRY
@@ -577,7 +577,7 @@ def _check_id_drift(store: Store, comp) -> str | None:
     "db_path",
     type=click.Path(),
     default=None,
-    help="Path to qprov.sqlite (or its containing .qprov dir). Defaults to the resolved store.",
+    help="Path to claimtrail.sqlite (or its containing .claimtrail dir). Defaults to the resolved store.",
 )
 def audit_paper_cmd(
     tex: Path,
@@ -585,16 +585,16 @@ def audit_paper_cmd(
     fail_on: tuple[str, ...],
     db_path: str | None,
 ) -> None:
-    """Audit a paper's `\\provid{...}` references against the qprov DB.
+    """Audit a paper's `\\provid{...}` references against the claimtrail DB.
 
     For each `\\provid{...}` reference in the .tex source, fetches the
-    linked claim and computation from the qprov store, extracts the
+    linked claim and computation from the claimtrail store, extracts the
     surrounding paragraph's numeric assertions, and reports MATCH /
     DRIFT / MISSING / ORPHAN. Catches the class of paper-vs-record drift
     where a manuscript number no longer matches the recorded computation.
     """
     if db_path is not None:
-        # Accept either the .qprov dir or the sqlite file path; the
+        # Accept either the .claimtrail dir or the sqlite file path; the
         # store root is the *directory* in both cases.
         p = Path(db_path)
         root = p.parent if p.is_file() else p
@@ -630,7 +630,7 @@ def properties_cmd(
     --hypothesis-iterations N
                        suggested upper bound on Hypothesis examples per
                        Hypothesis-driven check; exported as
-                       ``QPROV_HYPOTHESIS_ITERATIONS`` so check functions
+                       ``CLAIMTRAIL_HYPOTHESIS_ITERATIONS`` so check functions
                        can read it from the environment.
     """
     if not (list_mode or check_mode):
@@ -640,7 +640,7 @@ def properties_cmd(
 
     if hypothesis_iterations is not None:
         import os as _os
-        _os.environ["QPROV_HYPOTHESIS_ITERATIONS"] = str(hypothesis_iterations)
+        _os.environ["CLAIMTRAIL_HYPOTHESIS_ITERATIONS"] = str(hypothesis_iterations)
 
     if list_mode:
         all_names: dict[str, int] = {}

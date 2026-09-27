@@ -8,23 +8,23 @@ from pathlib import Path
 
 import pytest
 
-import qprov
-from qprov import (
-    QprovFileMissingError,
-    QprovHashError,
-    QprovHashWarning,
-    QprovTraversalError,
+import claimtrail
+from claimtrail import (
+    ClaimtrailFileMissingError,
+    ClaimtrailHashError,
+    ClaimtrailHashWarning,
+    ClaimtrailTraversalError,
     canonical_file,
     hash_file,
     tracked,
 )
-from qprov.inputs import (
+from claimtrail.inputs import (
     CANONICAL_FILE_TAG,
     auto_canonicalize,
     collect_data_hashes,
     is_canonical_file_arg,
 )
-from qprov.store import get_store
+from claimtrail.store import get_store
 
 
 def _write(parent, name, content):
@@ -79,7 +79,7 @@ def test_tracked_with_data_files_replaces_path_string(tmp_path):
     assert out[CANONICAL_FILE_TAG] is True
     assert out["sha"] == hash_file(p)
 
-    rows = qprov.find()
+    rows = claimtrail.find()
     assert len(rows) == 1
     assert rows[0].canonical_data_hash is not None
     assert hash_file(p) in rows[0].canonical_data_hash
@@ -97,7 +97,7 @@ def test_tracked_collapses_id_when_content_matches(tmp_path):
 
     scan(str(a))
     scan(str(b))
-    rows = qprov.find()
+    rows = claimtrail.find()
     # NOTE: ids differ because the descriptor includes the name and path.
     # The content hash IS the same, which is what audit cares about. If we
     # wanted name-blind collapse we'd strip name+path from the descriptor.
@@ -125,7 +125,7 @@ def test_tracked_id_differs_when_content_differs(tmp_path):
 
     scan(str(a))
     scan(str(b))
-    rows = qprov.find()
+    rows = claimtrail.find()
     assert len({r.id for r in rows}) == 2, "differing content must produce distinct ids"
 
 
@@ -149,7 +149,7 @@ def test_collect_data_hashes_handles_nested_structure(tmp_path):
 
 def test_warn_on_forgotten_data_files(tmp_path):
     """A file-like parameter without ``data_files=[...]`` must surface a
-    ``QprovHashWarning`` so callers cannot accidentally fall back to
+    ``ClaimtrailHashWarning`` so callers cannot accidentally fall back to
     path-string hashing.
     """
     with warnings.catch_warnings(record=True) as w:
@@ -163,14 +163,14 @@ def test_warn_on_forgotten_data_files(tmp_path):
         csv.write_text("hello")
         read_csv(str(csv))
     assert any("data_files" in str(x.message) for x in w)
-    assert any(issubclass(x.category, QprovHashWarning) for x in w)
+    assert any(issubclass(x.category, ClaimtrailHashWarning) for x in w)
 
 
 def test_require_data_files_raises_at_decoration_time(tmp_path):
     """``require_data_files=True`` upgrades the warning to a hard error,
     detected at decoration time before any call has been made.
     """
-    with pytest.raises(QprovHashError):
+    with pytest.raises(ClaimtrailHashError):
         @tracked(tags={"paper": "x"}, require_data_files=True)
         def read_csv(csv_path):
             return Path(csv_path).read_text()
@@ -178,7 +178,7 @@ def test_require_data_files_raises_at_decoration_time(tmp_path):
 
 def test_require_data_files_strict_missing_file(tmp_path):
     """``require_data_files=True`` also makes a missing declared file a
-    hard ``QprovFileMissingError`` at call time, replacing the v0.2
+    hard ``ClaimtrailFileMissingError`` at call time, replacing the v0.2
     soft fallback to path-string hashing.
     """
 
@@ -190,7 +190,7 @@ def test_require_data_files_strict_missing_file(tmp_path):
     def read_csv(csv_path):
         return Path(csv_path).read_text()
 
-    with pytest.raises(QprovFileMissingError):
+    with pytest.raises(ClaimtrailFileMissingError):
         read_csv(str(tmp_path / "does-not-exist.csv"))
 
 
@@ -202,11 +202,11 @@ def test_auto_canonicalize_warns_on_missing_default(tmp_path):
         warnings.simplefilter("always")
         result = auto_canonicalize(str(tmp_path / "missing.csv"))
     assert result == str(tmp_path / "missing.csv")
-    assert any(issubclass(x.category, QprovHashWarning) for x in w)
+    assert any(issubclass(x.category, ClaimtrailHashWarning) for x in w)
 
 
 def test_auto_canonicalize_strict_raises_on_missing(tmp_path):
-    with pytest.raises(QprovFileMissingError):
+    with pytest.raises(ClaimtrailFileMissingError):
         auto_canonicalize(str(tmp_path / "missing.csv"), strict=True)
 
 
@@ -294,7 +294,7 @@ def test_visitor_handles_cycle_without_infinite_recursion(tmp_path):
 
 
 def test_visitor_depth_limit_raises_traversal_error():
-    """Pathologically deep structures must raise ``QprovTraversalError``
+    """Pathologically deep structures must raise ``ClaimtrailTraversalError``
     rather than silently truncating, since the audit cares about which
     files contributed to a row."""
     deep: list = []
@@ -303,14 +303,14 @@ def test_visitor_depth_limit_raises_traversal_error():
         nxt: list = []
         cur.append(nxt)
         cur = nxt
-    with pytest.raises(QprovTraversalError):
+    with pytest.raises(ClaimtrailTraversalError):
         collect_data_hashes(deep)
 
 
 def test_tracked_with_explicit_data_files_does_not_warn(tmp_path):
     """The decoration-time warning must not fire when ``data_files``
     covers the file-like parameter."""
-    from qprov import path_of
+    from claimtrail import path_of
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
@@ -323,6 +323,6 @@ def test_tracked_with_explicit_data_files_does_not_warn(tmp_path):
         csv.write_text("declared")
         read_csv(str(csv))
     assert not any(
-        issubclass(x.category, QprovHashWarning) and "data_files" in str(x.message)
+        issubclass(x.category, ClaimtrailHashWarning) and "data_files" in str(x.message)
         for x in w
     )

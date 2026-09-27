@@ -3,7 +3,7 @@
 Use case: a large body of pre-existing per-cell JSON files (for example
 under a `data/` directory) representing finished computations that
 never ran through the @tracked decorator. `register_external` folds those
-results into the qprov store so they show up in `qprov list`, can be
+results into the claimtrail store so they show up in `claimtrail list`, can be
 tagged, and can have claims attached.
 
 The id convention mirrors @tracked exactly:

@@ -3,7 +3,7 @@
 The qnumbers project's primary implementation lives in
 `computations/sage/q_continued_fraction.sage` and uses Sage's Laurent series
 ring. This module re-implements the same construction in pure Python with
-truncated polynomial arithmetic, so qprov can be demonstrated without Sage.
+truncated polynomial arithmetic, so claimtrail can be demonstrated without Sage.
 
 Math is identical: same MGO formula, same even-length CF normalisation, same
 Prop 1.1 stopping criterion (continue the CF until the partial-quotient sum

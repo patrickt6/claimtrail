@@ -50,13 +50,13 @@ env/
 .DS_Store
 Thumbs.db
 
-# qprov stores generated locally (the project keeps its own under .qprov/)
-.qprov/
+# claimtrail stores generated locally (the project keeps its own under .claimtrail/)
+.claimtrail/
 *.sqlite
 *.sqlite-journal
 
 # Example run artifacts
-example/.qprov/
+example/.claimtrail/
 example/*.tex.bak
 
 # Local-only override notes

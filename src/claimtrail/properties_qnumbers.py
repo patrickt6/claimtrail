@@ -16,10 +16,10 @@ specialization (MGO-rationals Proposition 1.8, R(-1), S(-1) in {-1, 0, 1}).
 The broader n in {3, 4, 5, 6} roots-of-unity sweep is not implemented; the
 relevant check reports N/A rather than a false pass for that case.
 
-Use these as ``Property(check=...)`` arguments to ``@qprov.tracked``.
+Use these as ``Property(check=...)`` arguments to ``@claimtrail.tracked``.
 The decorator runs each check after the wrapped function completes
-and before writing the qprov row. A failed error-severity property
-raises :class:`qprov.properties.QprovPropertyError`.
+and before writing the claimtrail row. A failed error-severity property
+raises :class:`claimtrail.properties.ClaimtrailPropertyError`.
 """
 from __future__ import annotations
 

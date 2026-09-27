@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import pytest
 
-import qprov
-from qprov import tracked
-from qprov.claims import claim, export_latex
-from qprov.store import get_store
+import claimtrail
+from claimtrail import tracked
+from claimtrail.claims import claim, export_latex
+from claimtrail.store import get_store
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def computation_id():
     def f(N):
         return [k**2 for k in range(N)]
     f(10)
-    return qprov.find()[0].id
+    return claimtrail.find()[0].id
 
 
 def test_claim_with_link(computation_id):
@@ -65,7 +65,7 @@ def test_export_latex_filters_by_computation(computation_id):
     def g(N):
         return N * 3
     g(5)
-    other = qprov.find(function="g")[0].id
+    other = claimtrail.find(function="g")[0].id
 
     claim("about pi", computation_id=computation_id)
     claim("about g", computation_id=other)
@@ -76,38 +76,38 @@ def test_export_latex_filters_by_computation(computation_id):
 
 
 def test_latexify_brackets_multidigit_exponents():
-    from qprov.claims import latexify
+    from claimtrail.claims import latexify
     assert latexify("$q^10$") == "$q^{10}$"
     assert latexify("$X^15 + q^123$") == "$X^{15} + q^{123}$"
 
 
 def test_latexify_leaves_single_digit_exponents():
-    from qprov.claims import latexify
+    from claimtrail.claims import latexify
     assert latexify("$q^2$") == "$q^2$"
     assert latexify("$X^3 + q^9$") == "$X^3 + q^9$"
 
 
 def test_latexify_strips_sage_multiplication():
-    from qprov.claims import latexify
+    from claimtrail.claims import latexify
     assert latexify("$1 - X + X*q + X*q^2 - X^2*q$") == "$1 - X + X q + X q^2 - X^2 q$"
 
 
 def test_latexify_combined_real_validation_polynomial():
     """The shape of a typical MGO validation claim after latexify."""
-    from qprov.claims import latexify
+    from claimtrail.claims import latexify
     raw = "$P(X,q) = 1 + q^2 - X + X*q^3 - X^2*q^2$"
     expected = "$P(X,q) = 1 + q^2 - X + X q^3 - X^2 q^2$"
     assert latexify(raw) == expected
 
 
 def test_latexify_preserves_text_outside_math():
-    from qprov.claims import latexify
+    from claimtrail.claims import latexify
     assert latexify("at bidegree $(d_X, d_q) = (6,50)$ no annihilator exists") == \
         "at bidegree $(d_X, d_q) = (6,50)$ no annihilator exists"
 
 
 def test_latexify_is_idempotent():
-    from qprov.claims import latexify
+    from claimtrail.claims import latexify
     s = "$1 - X + X*q^2 - X^2*q^15$"
     assert latexify(latexify(s)) == latexify(s)
 
