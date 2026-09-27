@@ -4,95 +4,84 @@
 
 [![tests](https://github.com/patrickt6/claimtrail/actions/workflows/tests.yml/badge.svg)](https://github.com/patrickt6/claimtrail/actions/workflows/tests.yml)
 
-claimtrail records what a computation produced, links each sentence of a report
-to that record, checks the numbers in the sentence against it, and keeps an
-append-only log of who re-checked the result. Local first: a SQLite file and a
-folder of compressed JSON that live in the project and travel with it in git.
-No server, no account.
+claimtrail records what a computation produced and links each sentence of a
+report to that record. It then checks the numbers in the sentence against the
+record and keeps an append-only log of everyone who re-checked the result.
+Everything lives in the project itself: a SQLite file and a folder of
+compressed JSON that you commit to git like any other file. There is no server
+and no account.
 
 ## The problem
 
-A pipeline computes a number. An analyst, or more and more often an AI
-assistant, writes it into a report. A reviewer approves the report. Each step
-is reasonable on its own, and the number still drifts:
+A pipeline computes a number, an analyst (or, more and more often, an AI
+assistant) writes it into a report, and a reviewer signs off. Each of those
+steps is reasonable, and the number drifts anyway. It gets rounded, or copied
+from an older draft. The data file under it gets replaced by a new one with the
+same name. A summary line stops agreeing with the table it summarizes, and
+nobody notices because each person only saw their own part. A few months later
+nobody can say where "4.2%" came from, which run produced it, or whether anyone
+ever checked it.
 
-- it is rounded, re-stated, or copied from an older draft;
-- the data under it is replaced by a file with the same name;
-- a summary line disagrees with the table it summarizes, and nobody notices,
-  because each person saw only their own part.
+This happened in a public repo of mine. The README of
+[hmda-audit](https://github.com/patrickt6/hmda-audit), a fair-lending audit
+over 36.7 million mortgage applications, said that 5 of its 14 metrics were
+measured on the full file. Counting the rows of its own metrics ledger gives 6.
+The first time `claimtrail audit-report` ran on that README, it flagged the
+sentence ([case study below](#case-study-a-fair-lending-audit)).
 
-Months later nobody can say where "4.2%" came from, which run produced it, or
-whether anyone ever checked it.
-
-This is not a hypothetical. The public README of
-[hmda-audit](https://github.com/patrickt6/hmda-audit), a fair-lending audit over
-36.7 million mortgage applications, stated that 5 of its 14 metrics were
-measured on the full file. Its own metrics ledger, row by row, shows 6. The
-first `claimtrail audit-report` on that README flagged the sentence
-([details](#case-study-a-fair-lending-audit)).
-
-For banks this is also a regulatory question. OSFI Guideline E-23, Model Risk
-Management (2027), dated September 11, 2025 and effective May 1, 2027, lists
-the properties that model data should have, including "traceable (that is,
-having documented lineage and provenance)"
+Banks have a regulatory reason to care. OSFI Guideline E-23, Model Risk
+Management (2027), dated September 11, 2025 and in force from May 1, 2027,
+says model data should be "traceable (that is, having documented lineage and
+provenance)"
 ([OSFI](https://www.osfi-bsif.gc.ca/en/guidance/guidance-library/guideline-e-23-model-risk-management-2027)).
-The same guideline expects newer model use cases, "including those powered by
-AI", to play a greater role.
+The same guideline expects newer use cases, "including those powered by AI",
+to play a larger role.
 
-## Why it happens: a coordination failure, not a bad actor
+## Why it happens
 
-Mike, who builds the agent-orchestration project OpenRig, wrote about more than
-a thousand AI agents that broke out of an OpenAI security evaluation
-([Agent civilizations](https://openrig.dev/blog/agent-civilizations), 18 September
-2026). The public story called them rogue. His reading comes from running a
-few hundred agents of his own: on their own they are "pretty predictable", and
-"the trouble shows up across the population, in how they hand work and
-decisions to each other." In the OpenAI case, many agents questioned whether to
-break the rules and then got approval from another agent they treated as an
-authority. In his own fleet, an agent asks whether it should do something "and
-it gets a yes from another agent that doesn't have the context to give one."
-In his words: "The information for a good decision exists, it's just split
-between them, and nobody puts it together."
-His fix is mostly context: the agent making a decision needs the information
-the decision depends on, and an approval should come from someone "that
-actually knows the work." He also notes the good news: "with agents it all
-happens in text," so the start of a failure can be traced.
+Mike, who builds the agent-orchestration project OpenRig, wrote about the
+thousand-plus AI agents that broke out of an OpenAI security evaluation
+([Agent civilizations](https://openrig.dev/blog/agent-civilizations), 18
+September 2026). The headlines called them rogue. Mike runs a few hundred
+agents of his own and reads it differently. On their own, he says, agents are
+"pretty predictable", and "the trouble shows up across the population, in how
+they hand work and decisions to each other." In the OpenAI case, many agents
+questioned whether to break the rules and then got approval from another agent
+they treated as an authority. In his own fleet, an agent asks whether it should
+do something "and it gets a yes from another agent that doesn't have the
+context to give one." His summary: "The information for a good decision
+exists, it's just split between them, and nobody puts it together."
 
-*Interpretation, not taken from the post:* a number in a report is a hand-off
-of exactly this kind. The pipeline, the writer (human or AI), and the reviewer
-each hold part of the picture. claimtrail keeps the hand-off in text, so the
-start of a drift can be found, and it puts the full record in front of the
-person who approves:
+His fix is mostly about context. The agent making a decision needs the
+information that decision depends on, and approval should come from someone
+"that actually knows the work." He also points out that "with agents it all
+happens in text," so you can go back and find where a failure started.
 
-| Coordination failure | What claimtrail does |
+The post is about agents, not reports. My reading of it (this part is my
+interpretation, not his) is that a number in a report is the same kind of
+hand-off. The pipeline, the writer and the reviewer each hold part of the
+picture. claimtrail writes the hand-off down, so you can trace a drift back to
+where it started, and it puts the whole record in front of whoever approves
+the result:
+
+| Where the hand-off breaks | What claimtrail does |
 |---|---|
-| The writer restates a number without the data in view | Each sentence carries a marker to its record; `audit-report` compares every number in it |
-| The data changes under a sentence one reasonable step at a time | Records are keyed on input content; `verify` names the input file that changed |
-| Approval comes from someone who lacks the context | The verification log records who checked, and counts a check by the author as a self-check, not an independent one |
-| Prose drifts from data while every hash still matches | Claims carry structured assertions, re-checked on every run |
-
-## What it does
-
-| Step | Command | Result |
-|---|---|---|
-| Record a computation | `@claimtrail.tracked` or `register_external(...)` | Inputs (including file contents), outputs, code version, machine, author |
-| State a claim | `claimtrail claim "..." --link ID --expect "outputs.rows == 36734685"` | Refused if the assertion is false |
-| Audit a report | `claimtrail audit-report report.md` | MATCH, DRIFT, FAIL, MISSING, ORPHAN per linked block; UNBACKED with `--strict` |
-| Re-check a result | `claimtrail verify ID` or `verify ID --against fresh.json` | Appended to a hash-chained, append-only log |
-| Show the log | `claimtrail verifications [ID] [--check-chain]` | Who checked what, when; standing: independent, self-checked, author-unknown, unverified, failed |
+| The writer restates a number without the data in view | Each sentence carries a marker pointing at its record, and `audit-report` checks every number in it |
+| The data changes under a sentence one reasonable step at a time | Records are keyed on the contents of their input files, and `verify` names the file that changed |
+| Approval comes from someone without the context | The log records who checked, and a check by the original author counts as a self-check, not an independent one |
+| The prose drifts while every hash still matches | Claims carry structured assertions that are re-checked on every run |
 
 ## A two-minute demo
 
 `examples/lending-review/run_demo.py` runs a small fair-lending screen over
-**synthetic** loan applications, then walks through four scenes. It needs only
-the standard library.
+**synthetic** loan applications. It only needs the standard library.
 
 ```bash
 python examples/lending-review/run_demo.py
 ```
 
 An AI assistant drafts the quarterly report from the screen's output. Four of
-its numbers are right. One it made up. One has no source at all:
+its numbers are right, it made one up, and one has no source at all:
 
 ```text
 $ claimtrail audit-report report.md --strict
@@ -110,13 +99,13 @@ UNBACKED  line 17    -
           1 number(s) with no claimtrail marker
 ```
 
-Numbers are compared at the precision they are written with: "41.4%" is
-supported by a stored 0.413574, and "20,000" must match exactly.
+Numbers are compared at the precision they were written with, so "41.4%" is
+supported by a stored 0.413574, while "20,000" has to match exactly.
 
-A model validator then re-runs the screen, and the log records the check as
-independent, because the validator is not the analyst who recorded the run.
-Finally, the input file is replaced under the same name, and the next re-check
-fails loudly instead of the report drifting quietly:
+Next, a model validator re-runs the screen. The log counts that check as
+independent because the validator isn't the analyst who recorded the run.
+Last, the input file gets replaced under the same name. The next re-check
+fails and says why, instead of the report drifting without anyone noticing:
 
 ```text
 $ claimtrail verify 9798f933d29b
@@ -129,52 +118,53 @@ FAIL  9798f933d29bbf0d3254407c503ffeff
 
 ## Case study: a fair-lending audit
 
-[hmda-audit](https://github.com/patrickt6/hmda-audit) screens 36,734,685 public
-mortgage applications from 5,329 lenders for approval-rate disparity.
-`scripts/record_claims.py` builds six claims from the committed results files,
-and the README's status paragraph links to the first three:
+[hmda-audit](https://github.com/patrickt6/hmda-audit) screens 36,734,685
+public mortgage applications from 5,329 lenders for gaps in approval rates.
+Its `scripts/record_claims.py` builds six claims from the committed results
+files, and the status paragraph of its README links to the first three:
 
-| Claim | Basis | Assertions |
+| Claim | Basis | What it asserts |
 |---|---|---|
 | `hmda-scale` | MEASURED | applications, lenders, years |
-| `hmda-status-counts` | MEASURED | metric counts derived from the ledger rows |
-| `hmda-tests` | REPORTED | test count as stated in the status file |
+| `hmda-status-counts` | MEASURED | metric counts, derived from the ledger rows |
+| `hmda-tests` | REPORTED | the test count stated in the status file |
 | `hmda-four-fifths` | MEASURED | lenders flagged, threshold, minimum count |
 | `hmda-engineering` | MEASURED | DuckDB and pandas time and memory |
 | `hmda-governance` | MEASURED | controls and their test backing |
 
-The first audit reported one DRIFT: the README said "5 MEASURED" where the
-ledger rows give 6. The README now says 6, and the claim asserts it. The
-reported test count (290 passed) was re-run and is logged as self-checked, not
-independent, because the same person ran it. A CI job re-checks the claims, the
-README and the log on every push. CI does not re-run the national audit; that
-happens on a machine with the data, and each re-run goes into the log.
+The first audit found one DRIFT. The README said "5 MEASURED", and the ledger
+rows give 6. The README now says 6 and the claim asserts it. The test count
+(290 passed) was re-run and logged as self-checked rather than independent,
+since the same person ran it. A CI job re-checks the claims, the README and the
+log on every push. It doesn't re-run the national audit, which needs the full
+data set; those re-runs happen on a machine that has the data, and each one
+goes into the log.
 
-## Where it came from: mathematics
+## Where it came from
 
-claimtrail began as `qprov`, a provenance tool for an NSERC-funded research
-project on q-deformed real numbers. A paper there states results such as "the
-first nonzero coefficient appears at q^46", and each one is the end of a chain:
-some code ran, with some inputs, on some machine, at some version. The failure
-mode that shaped the design: two computations of the same quantity disagree,
-because two machines read different data files that happen to share a name.
-Hashing file contents into every record, refusing a paper claim with no backing
-computation, and auditing a LaTeX manuscript against the store
-(`claimtrail audit-paper`) all come from that work. The original write-up is in
-[docs/history](docs/history/qprov-engine-overview.pdf), and the research example
-runs from `examples/q-numbers`.
+claimtrail started as `qprov`, a provenance tool for an NSERC-funded research
+project on q-deformed real numbers. A paper there states results like "the
+first nonzero coefficient appears at q^46", and each one sits at the end of a
+chain: some code ran, with some inputs, on some machine, at some version. The
+problem that shaped the design was two computations of the same quantity
+disagreeing because two machines read different data files that happened to
+share a name. Hashing file contents into every record, refusing a paper claim
+that has no computation behind it, and auditing a LaTeX manuscript against the
+store (`claimtrail audit-paper`) all came out of that work. The original
+write-up is in [docs/history](docs/history/qprov-engine-overview.pdf), and the
+research example runs from `examples/q-numbers`.
 
-The failure mode is not specific to mathematics. Any report whose numbers come
-from code has the same chain, and the same ways to lose it.
+Nothing about that problem is specific to mathematics. Any report whose
+numbers come from code has the same chain and can lose it the same ways.
 
 ## Install
 
 ```bash
-pip install "claimtrail @ git+https://github.com/patrickt6/claimtrail"
+pip install claimtrail
 ```
 
-Python 3.11 or newer. For development: `pip install -e ".[dev]"` and
-`python -m pytest`.
+You need Python 3.11 or newer. To work on claimtrail itself, run
+`pip install -e ".[dev]"` and then `python -m pytest`.
 
 ## Quickstart
 
@@ -196,7 +186,8 @@ claimtrail.claim(
 )
 ```
 
-Link the report sentence to the claim with an invisible marker, then audit:
+Link the sentence in your report to the claim with an invisible marker, then
+run the audit:
 
 ```markdown
 Group A was approved at 41.4% and group B at 36.1%, a gap of 5.3 points.
@@ -207,13 +198,13 @@ Group A was approved at 41.4% and group B at 36.1%, a gap of 5.3 points.
 claimtrail audit-report report.md --strict     # exit 1 on DRIFT, FAIL, MISSING, ORPHAN, UNBACKED
 ```
 
-In HTML, `data-claim="q3-gap"` on an element works the same way. In LaTeX,
-`\provid{...}` and `claimtrail audit-paper paper.tex` do the same for a
-manuscript; `claimtrail export-latex` writes `\fact{...}` macros for each claim.
+In HTML, put `data-claim="q3-gap"` on the element. For a LaTeX manuscript,
+use `\provid{...}` with `claimtrail audit-paper paper.tex`, and
+`claimtrail export-latex` writes a `\fact{...}` macro for each claim.
 
-Results produced outside Python (a SQL job, a notebook, another team's
-pipeline) are recorded with `claimtrail.register_external(...)` and re-checked
-with `claimtrail verify ID --against fresh_outputs.json`.
+For results produced outside Python, such as a SQL job, a notebook or another
+team's pipeline, record them with `claimtrail.register_external(...)` and
+re-check them with `claimtrail verify ID --against fresh_outputs.json`.
 
 ## The command-line tool
 
@@ -230,50 +221,55 @@ claimtrail lint                          orphan, dangling, tampered, drifted and
 claimtrail export-latex | properties | gc
 ```
 
-Assertion syntax: `PATH OP VALUE`, where `OP` is one of `== != < <= > >= in ~=`.
-Examples: `outputs.rows == 36734685`, `result.gap ~= 5.3 +- 0.05`,
+An assertion is `PATH OP VALUE`, where `OP` is one of `== != < <= > >= in ~=`,
+for example `outputs.rows == 36734685`, `result.gap ~= 5.3 +- 0.05` or
 `outputs.auc in [0.80, 0.82]`.
 
-## What is recorded
+## What gets recorded
 
-For every tracked call: the function name, module and source; a hash of the
-inputs, with the contents of declared data files; a hash of the output; the git
-commit and a dirty flag; the host, CPU, RAM, GPU, Python and Sage versions;
-start, end and runtime; who ran it; and a payload with the arguments, result,
-stdout, stderr and warnings. The id is a hash of the function, the inputs and
-the code version, so the same inputs and code always give the same id. A
-payload that is edited on disk fails its integrity check on the next read.
+Each tracked call stores the function's name, module and source code; a hash of
+its inputs that includes the contents of any declared data files; a hash of its
+output; the git commit and whether the tree was dirty; the host, CPU, RAM, GPU,
+and Python and Sage versions; start and end times; and who ran it. A payload
+next to the record keeps the arguments, result, stdout, stderr and warnings.
+The id is a hash of the function, the inputs and the code version, so the same
+inputs and code always give the same id. If someone edits a payload on disk,
+the next read fails its integrity check.
 
 ## Limits
 
-- **Attribution, not authentication.** The author and verifier names come from
-  `CLAIMTRAIL_ACTOR`, else git `user.email`, else `user@host`. Independence is
-  as trustworthy as that configuration.
-- **Tamper evidence, not prevention.** The verification log is hash-chained and
-  SQLite triggers refuse edits, but anyone with write access can rebuild the
-  whole chain. Anchor the chain head (printed by `--check-chain`) somewhere you
-  do not control alone, such as a commit or a CI log.
-- **Reproduced is not the same as valid.** `verify` shows that a result
-  reproduces. Whether the result is correct is a separate question; property
-  checks (`@tracked(properties=[...])`) and structured assertions cover part of
-  it, review covers the rest.
-- **Number reading is pattern-based.** `audit-report` reads thousands
-  separators, percents, currency, scale words and displayed precision, and skips
-  dates, years, versions, list markers and identifiers. It does not understand
-  sentences. In a range such as "55-61%", the first number is read as a count.
-  A DRIFT is a prompt for a person, not a verdict.
-- **Heavy jobs are re-checked where the data lives.** CI checks the committed
-  records and the report. Re-running a large computation happens on a machine
-  that has the data, and the result goes into the log.
-- **`verify` needs an importable function.** Functions defined in `__main__`,
-  lambdas and notebook cells cannot be re-run; record them with
-  `register_external` and check them with `verify --against`.
+The author and verifier names come from `CLAIMTRAIL_ACTOR`, then git
+`user.email`, then `user@host`. That is attribution, not authentication, and
+"independent" is only as trustworthy as that setting.
+
+The verification log is hash-chained and SQLite triggers refuse edits, which
+makes tampering visible but doesn't prevent it: anyone with write access can
+rebuild the whole chain. If that matters, copy the chain head (printed by
+`--check-chain`) somewhere you don't control alone, like a commit or a CI log.
+
+`verify` shows that a result reproduces, not that it is right. Property checks
+(`@tracked(properties=[...])`) and structured assertions cover some of the
+second question, and review covers the rest.
+
+`audit-report` reads numbers with patterns. It handles thousands separators,
+percents, currency, scale words and displayed precision, and it skips dates,
+years, versions, list markers and identifiers, but it doesn't understand
+sentences. In a range like "55-61%" it reads the first number as a count. Treat
+a DRIFT as a reason for a person to look, not as a verdict.
+
+CI checks the committed records and the report. Large computations get
+re-checked on a machine that has the data, and those re-runs go into the log.
+
+`verify` can only re-run a function it can import. Functions defined in
+`__main__`, lambdas and notebook cells can't be re-run, so record their output
+with `register_external` and check it with `verify --against`.
 
 ## Compatibility with qprov
 
-`import qprov`, the `qprov` command, `QPROV_HOME`, existing `.qprov/qprov.sqlite`
-stores and `\provid{...}` references keep working. Stores open in place and
-migrate additively; nothing is moved or renamed.
+`import qprov`, the `qprov` command, `QPROV_HOME`, existing
+`.qprov/qprov.sqlite` stores and `\provid{...}` references all still work.
+Old stores open where they are and migrate by adding columns and tables;
+nothing gets moved or renamed.
 
 ## Project layout
 
