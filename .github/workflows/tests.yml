@@ -23,4 +23,6 @@ jobs:
       - name: Run the example end to end
         run: |
           pip install sympy
-          cd example && python run_example.py
+          cd examples/q-numbers && python run_example.py
+      - name: Run the lending-review demo end to end
+        run: python examples/lending-review/run_demo.py

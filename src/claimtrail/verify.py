@@ -29,10 +29,12 @@ from __future__ import annotations
 
 import importlib
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from . import ledger
 from .gitinfo import collect as collect_git
+from .inputs import hash_file, is_canonical_file_arg
 from .serialize import canonical_dumps, hash_value
 from .store import Computation, get_store
 
@@ -65,6 +67,32 @@ def _resolve_callable(module_name: str | None, function_name: str) -> Any:
         # verify side-effect-free.
         return func.__wrapped__
     return func
+
+
+def _changed_inputs(node: Any, depth: int = 0) -> list[str]:
+    """Name every recorded input file whose bytes differ from the record.
+
+    A re-run that reads a replaced file cannot reproduce the original, and
+    "the output changed" hides the reason. This walk finds the files.
+    """
+    if depth > 16:
+        return []
+    if is_canonical_file_arg(node):
+        path = Path(node["path"])
+        if not path.is_file():
+            return [f"{node.get('name', path.name)} is missing (was at {path})"]
+        now = hash_file(path)
+        if now != node.get("sha"):
+            return [
+                f"{node.get('name', path.name)} changed since the run "
+                f"(recorded {str(node.get('sha'))[:12]}, now {now[:12]})"
+            ]
+        return []
+    if isinstance(node, dict):
+        return [m for v in node.values() for m in _changed_inputs(v, depth + 1)]
+    if isinstance(node, (list, tuple)):
+        return [m for v in node for m in _changed_inputs(v, depth + 1)]
+    return []
 
 
 def _first_diff_index(a: str, b: str) -> int | None:
@@ -156,9 +184,17 @@ def verify(comp_id: str, *, record: bool = True) -> VerifyResult:
     expected_text = canonical_dumps(payload.get("result"))
     actual_text = canonical_dumps(new_result)
     diff = _first_diff_index(expected_text, actual_text)
+    changed = _changed_inputs([args, kwargs])
+    if changed:
+        message = (
+            "output hash differs because input data changed: " + "; ".join(changed)
+            + ". The record still describes the original run; re-run to record the new data."
+        )
+    else:
+        message = (
+            "output hash differs: re-run produced a different value than the original. "
+            "If the function is non-deterministic, seed any RNG before decorating."
+        )
     return _log(comp, VerifyResult(
-        False, comp.id, comp.output_hash, new_hash,
-        "output hash differs: re-run produced a different value than the original. "
-        "If the function is non-deterministic, seed any RNG before decorating.",
-        diff_index=diff,
+        False, comp.id, comp.output_hash, new_hash, message, diff_index=diff,
     ), "rerun", record)

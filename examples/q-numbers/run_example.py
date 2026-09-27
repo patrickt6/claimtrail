@@ -1,6 +1,6 @@
 """End-to-end demo: wrap a q-real computation, record real claims, export
 to LaTeX. Produces:
-  - example/.claimtrail/    store with one row per (constant, N) computation
+  - examples/q-numbers/.claimtrail/    store with one row per (constant, N) computation
   - example/claims.tex with 7 \\fact{...} macros, each footnoted with its
     provenance computation id
 

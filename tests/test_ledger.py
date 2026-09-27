@@ -123,3 +123,19 @@ def test_audit_report_shows_standing(tmp_path, monkeypatch):
     report.write_text(f"Rows: 36,734,685. <!-- ct:{comp_id[:12]} -->\n")
     (entry,) = claimtrail.audit_report(report, claimtrail.get_store()).entries
     assert entry.status == "MATCH" and entry.verified == "independent"
+
+
+@claimtrail.tracked(data_files=["path"])
+def count_rows(path):
+    with open(claimtrail.path_of(path)) as f:
+        return sum(1 for _ in f) - 1
+
+
+def test_verify_names_a_replaced_input_file(tmp_path):
+    data = tmp_path / "rows.csv"
+    data.write_text("a\n1\n2\n")
+    count_rows(str(data))
+    (comp,) = claimtrail.find(function="count_rows")
+    data.write_text("a\n1\n2\n3\n")
+    result = verify(comp.id)
+    assert not result.ok and "rows.csv changed since the run" in result.message
