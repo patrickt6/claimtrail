@@ -374,7 +374,7 @@ def test_v2_to_v3_migration_idempotent(tmp_path):
 
     assert cols_1 == cols_2
     assert claims_sql_1 == claims_sql_2
-    assert version_1 == version_2 == "4"
+    assert version_1 == version_2 == "5"
 
 
 def test_migration_from_simulated_v2_store(tmp_path):
@@ -460,7 +460,7 @@ def test_migration_from_simulated_v2_store(tmp_path):
         version = conn.execute(
             "SELECT value FROM schema_meta WHERE key='version'"
         ).fetchone()["value"]
-        assert version == "4"
+        assert version == "5"
         claims_sql = conn.execute(
             "SELECT sql FROM sqlite_master WHERE name='claims'"
         ).fetchone()["sql"]

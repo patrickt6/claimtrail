@@ -6,6 +6,8 @@ Public API:
     find(...)             query computations by tags / function / dates
     get(id)               fetch a single computation by id
     export_latex(...)     render claims to a .tex file
+    audit_report(...)     check a Markdown/HTML report's numbers against the store
+    check_claims(...)     re-check structured claim assertions
     register_external(...) retroactively register pre-existing JSON outputs
     set_store_root(path)  override the default .claimtrail store location
 """
@@ -26,7 +28,10 @@ from .store import (
     ClaimtrailCollisionError,
     PayloadTamperedError,
 )
-from .claims import claim, export_latex, UnbackedPaperClaimError
+from .claims import claim, check_claims, ClaimCheck, export_latex, UnbackedPaperClaimError
+from .assertions import ClaimAssertionError, Expectation, parse_expectation
+from .audit_report import audit_report, ReportAudit, ReportEntry
+from .quantities import Quantity, extract_quantities
 from .inputs import canonical_file, hash_file, path_of
 from .query import find, get
 from .external import register_external
@@ -54,6 +59,16 @@ QprovPropertyError = ClaimtrailPropertyError
 __all__ = [
     "tracked",
     "claim",
+    "check_claims",
+    "ClaimCheck",
+    "ClaimAssertionError",
+    "Expectation",
+    "parse_expectation",
+    "audit_report",
+    "ReportAudit",
+    "ReportEntry",
+    "Quantity",
+    "extract_quantities",
     "find",
     "get",
     "export_latex",

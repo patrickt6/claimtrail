@@ -1,4 +1,4 @@
-"""Click CLI: claimtrail init | list | show | find | claim | export-latex | verify | gc | properties."""
+"""Click CLI: claimtrail init | list | show | find | claim | check | export-latex | verify | lint | audit-paper | audit-report | gc | properties."""
 from __future__ import annotations
 
 import json
@@ -10,7 +10,13 @@ import click
 
 from . import __version__
 from .audit_paper import audit_paper as run_audit_paper, render_report
-from .claims import claim as record_claim, export_latex
+from .audit_report import (
+    DEFAULT_FAIL_ON as REPORT_DEFAULT_FAIL_ON,
+    STATUSES as REPORT_STATUSES,
+    audit_report as run_audit_report,
+    render as render_report_audit,
+)
+from .claims import check_claims, claim as record_claim, export_latex
 from .properties import Property, PropertyResult
 from .serialize import hash_value
 from .store import (
@@ -43,7 +49,7 @@ def _store_for_cwd() -> Store:
     help="Override store root (default: nearest .claimtrail ancestor or ./.claimtrail).",
 )
 def main(store: str | None) -> None:
-    """Provenance tracker for math research computations."""
+    """Keep every number in a report linked to the computation that produced it."""
     if store:
         set_store_root(store)
 
@@ -170,6 +176,11 @@ def find(tag_filters: tuple[str, ...], function: str | None, since: str | None, 
 @click.option("--notes", default=None)
 @click.option("--tag", "tag_specs", multiple=True, help="key=value claim tag (repeatable). Tag `paper=...` enforces a backing computation.")
 @click.option("--allow-unbacked", is_flag=True, help="Permit a paper-tagged claim without --link (stages for later back-attach).")
+@click.option(
+    "--expect", "expect_specs", multiple=True,
+    help="Structured assertion checked against the linked payload, e.g. "
+         "'outputs.rows == 36734685' or 'outputs.gap ~= 4.2 +- 0.05' (repeatable).",
+)
 def claim_cmd(
     text: str,
     computation_id: str | None,
@@ -177,6 +188,7 @@ def claim_cmd(
     notes: str | None,
     tag_specs: tuple[str, ...],
     allow_unbacked: bool,
+    expect_specs: tuple[str, ...],
 ) -> None:
     """Register a claim, optionally linked to a computation."""
     store = _store_for_cwd()
@@ -199,10 +211,41 @@ def claim_cmd(
             notes=notes,
             tags=parsed_tags or None,
             allow_unbacked=allow_unbacked,
+            expect=expect_specs or None,
         )
     except Exception as exc:
         raise click.ClickException(str(exc))
     click.echo(f"claim {cid} recorded")
+
+
+@main.command(name="check")
+@click.option("--paper", default=None, help="Only claims tagged paper=<slug> (a paper or report).")
+def check_cmd(paper: str | None) -> None:
+    """Re-check every claim's structured assertions against its payload.
+
+    Exit 1 if any assertion is false or cannot be evaluated.
+    """
+    checks = check_claims(_store_for_cwd(), paper=paper)
+    if not checks:
+        click.echo("no claims with assertions")
+        return
+    failures = 0
+    for chk in checks:
+        head = f"claim {chk.claim.id[:12]}  {_shorten(chk.claim.text, 70)}"
+        if chk.error:
+            click.echo(f"FAIL  {head}\n      {chk.error}", err=True)
+            failures += 1
+            continue
+        for r in chk.results:
+            if r.ok:
+                click.echo(f"ok    {head}\n      {r.message}")
+            else:
+                click.echo(f"FAIL  {head}\n      {r.message}", err=True)
+                failures += 1
+    if failures:
+        click.echo(f"{failures} failing assertion(s)", err=True)
+        sys.exit(1)
+    click.echo(f"all assertions hold ({sum(len(c.results) for c in checks)} checked)")
 
 
 @main.command(name="export-latex")
@@ -280,6 +323,8 @@ def lint(rerun_properties: bool) -> None:
       * PROPFAIL: a stored property result has ``passed: false`` AND
         severity ``error``. Indicates a metamorphic invariant violation
         on a backing computation; surface immediately.
+      * ASSERTFAIL: a claim's structured assertion (``--expect``) is false
+        against its linked computation's payload.
 
     Advisory (not failing, exit 0):
       * NOHASH: paper-backed computation with no canonical_data_hash.
@@ -339,6 +384,15 @@ def lint(rerun_properties: bool) -> None:
                 err=True,
             )
             advisories += 1
+
+    for chk in check_claims(store):
+        for r in chk.results:
+            if not r.ok:
+                click.echo(f"ASSERTFAIL  claim {chk.claim.id[:12]}  {r.message}", err=True)
+                issues += 1
+        if chk.error:
+            click.echo(f"ASSERTFAIL  claim {chk.claim.id[:12]}  {chk.error}", err=True)
+            issues += 1
 
     for comp_id in sorted(backing_ids):
         comp = store.get_computation(comp_id)
@@ -604,6 +658,38 @@ def audit_paper_cmd(
     click.echo(render_report(report, output_format=output_format))
     fail_set = set(fail_on)
     if any(e.status in fail_set for e in report.entries):
+        sys.exit(1)
+
+
+@main.command(name="audit-report")
+@click.argument("report", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--format", "output_format", type=click.Choice(["text", "json", "markdown"]), default="text")
+@click.option("--strict", is_flag=True, help="Also flag blocks that state numbers but carry no marker (UNBACKED).")
+@click.option(
+    "--fail-on", multiple=True, type=click.Choice(list(REPORT_STATUSES)),
+    help="Statuses that cause exit 1. Default: FAIL, DRIFT, MISSING, ORPHAN (plus UNBACKED with --strict).",
+)
+@click.option("--as", "fmt", type=click.Choice(["markdown", "html"]), default=None,
+              help="Read the report as this format (default: from the file extension).")
+def audit_report_cmd(
+    report: Path,
+    output_format: str,
+    strict: bool,
+    fail_on: tuple[str, ...],
+    fmt: str | None,
+) -> None:
+    """Check every number in a Markdown or HTML report against the store.
+
+    Link a paragraph, list item or table row to a claim or computation with
+    an invisible marker such as `<!-- ct:7f3a91c2 -->` (or, in HTML, a
+    `data-claim="7f3a91c2"` attribute). Each linked block is reported as
+    MATCH, DRIFT, FAIL, MISSING or ORPHAN. Numbers are compared at the
+    precision they are written with, so "4.2%" is supported by 0.0423.
+    """
+    audit = run_audit_report(report, _store_for_cwd(), strict=strict, fmt=fmt)
+    click.echo(render_report_audit(audit, output_format=output_format))
+    fail_set = tuple(fail_on) or (REPORT_DEFAULT_FAIL_ON + (("UNBACKED",) if strict else ()))
+    if audit.failed(fail_set):
         sys.exit(1)
 
 

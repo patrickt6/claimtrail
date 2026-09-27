@@ -11,6 +11,11 @@ Layout under store_root (default `./.claimtrail`):
 The store is single-user. We open a fresh sqlite3 connection per write to
 avoid threading subtleties, and keep the schema minimal.
 
+Schema v5 adds the ``assertions`` column to ``claims``: a JSON list of
+structured checks (see :mod:`claimtrail.assertions`) evaluated against the
+linked computation's payload. Strictly additive: existing claims get NULL
+and are checked exactly as before.
+
 Schema v4 adds the ``property_results`` column to ``computations`` for the
 property-based tracking layer. Strictly additive on top of v3:
 existing rows get a NULL ``property_results``; new writes populate it
@@ -65,7 +70,7 @@ from typing import Any, Iterable, Iterator
 from .serialize import canonical_dumps, canonical_loads
 
 
-CURRENT_SCHEMA_VERSION = "4"
+CURRENT_SCHEMA_VERSION = "5"
 PAYLOAD_HASH_ALGORITHM = "blake2b"
 PAYLOAD_HASH_DIGEST_SIZE = 16  # bytes -> 32 hex chars, matches hash_value/hash_text
 
@@ -149,6 +154,7 @@ CREATE TABLE IF NOT EXISTS claims (
     notes           TEXT,
     paper_tag       TEXT,
     unbacked        INTEGER NOT NULL DEFAULT 0,
+    assertions      TEXT,
     FOREIGN KEY (computation_id) REFERENCES computations(id) ON DELETE RESTRICT,
     CHECK (paper_tag IS NULL OR computation_id IS NOT NULL OR unbacked = 1)
 );
@@ -223,6 +229,7 @@ class Claim:
     tags: dict[str, str] = dataclasses.field(default_factory=dict)
     paper_tag: str | None = None
     unbacked: bool = False
+    assertions: str | None = None  # JSON list, see claimtrail.assertions
 
 
 _DEFAULT_STORE_DIRNAME = ".claimtrail"
@@ -367,6 +374,12 @@ class Store:
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(computations)").fetchall()}
         if "property_results" not in cols:
             conn.execute("ALTER TABLE computations ADD COLUMN property_results TEXT")
+
+        # v4 -> v5: structured claim assertions. Runs after the v2 -> v3
+        # claims rebuild, whose column list predates this column.
+        claim_cols = {r["name"] for r in conn.execute("PRAGMA table_info(claims)").fetchall()}
+        if "assertions" not in claim_cols:
+            conn.execute("ALTER TABLE claims ADD COLUMN assertions TEXT")
 
     def _backfill_payload_hashes(self, conn: sqlite3.Connection) -> None:
         rows = conn.execute(
@@ -719,6 +732,7 @@ class Store:
         "computation_id",
         "paper_tag",
         "unbacked",
+        "assertions",
     )
 
     def insert_claim(self, claim: Claim, *, force: bool = False) -> None:
@@ -736,11 +750,11 @@ class Store:
         params = (
             claim.id, claim.text, claim.value_numeric,
             claim.computation_id, claim.created_at, claim.notes,
-            paper_tag, unbacked_flag,
+            paper_tag, unbacked_flag, claim.assertions,
         )
         cols_sql = (
             "id, text, value_numeric, computation_id, created_at, notes, "
-            "paper_tag, unbacked"
+            "paper_tag, unbacked, assertions"
         )
         with self._connect() as conn:
             if force:
@@ -772,6 +786,7 @@ class Store:
                         "computation_id": claim.computation_id,
                         "paper_tag": paper_tag,
                         "unbacked": unbacked_flag,
+                        "assertions": claim.assertions,
                     }
                     if _row_matches_dict(existing, incoming_dict):
                         return
@@ -858,7 +873,13 @@ class Store:
                 "SELECT * FROM claims WHERE id = ?", (claim_id,)
             ).fetchone()
             if row is None:
-                return None
+                # Unique-prefix match, as for computations.
+                rows = conn.execute(
+                    "SELECT * FROM claims WHERE id LIKE ?", (claim_id + "%",)
+                ).fetchall()
+                if len(rows) != 1:
+                    return None
+                row = rows[0]
             c = _row_to_claim(row)
             tag_rows = conn.execute(
                 "SELECT key, value FROM claim_tags WHERE claim_id = ?", (c.id,)
@@ -943,6 +964,7 @@ def _row_to_claim(row: sqlite3.Row) -> Claim:
     keys = row.keys()
     paper_tag = row["paper_tag"] if "paper_tag" in keys else None
     unbacked_val = row["unbacked"] if "unbacked" in keys else 0
+    assertions = row["assertions"] if "assertions" in keys else None
     return Claim(
         id=row["id"],
         text=row["text"],
@@ -952,6 +974,7 @@ def _row_to_claim(row: sqlite3.Row) -> Claim:
         notes=row["notes"],
         paper_tag=paper_tag,
         unbacked=bool(unbacked_val),
+        assertions=assertions,
     )
 
 
