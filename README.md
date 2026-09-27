@@ -161,6 +161,8 @@ numbers come from code has the same chain and can lose it the same ways.
 
 ```bash
 pip install claimtrail
+# or straight from the source:
+pip install "claimtrail @ git+https://github.com/patrickt6/claimtrail"
 ```
 
 You need Python 3.11 or newer. To work on claimtrail itself, run
