@@ -6,12 +6,24 @@ authors = [{name = "Patrick Taylor"}]
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
+keywords = ["provenance", "reproducibility", "audit", "model-risk", "data-lineage", "reporting"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Topic :: Software Development :: Quality Assurance",
+]
 dependencies = [
     "click>=8.0",
     "psutil>=5.9",
     "gitpython>=3.1",
     "hypothesis>=6.100",
 ]
+
+[project.urls]
+Homepage = "https://github.com/patrickt6/claimtrail"
+Issues = "https://github.com/patrickt6/claimtrail/issues"
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "pytest-cov", "ruff"]

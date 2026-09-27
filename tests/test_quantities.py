@@ -20,7 +20,7 @@ def test_thousands_separators_are_one_number():
 
 def test_year_ranges_and_bare_years_are_not_claims():
     assert values("Data from 2023-2025, first filed in 2019.") == []
-    assert values("Data from 2023–2025") == []
+    assert values("Data from 2023\u20132025") == []
 
 
 def test_numeric_range_is_two_positive_numbers():
