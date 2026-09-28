@@ -22,9 +22,11 @@ from claimtrail import (
 )
 from claimtrail.inputs import (
     CANONICAL_FILE_TAG,
+    _VISITOR_MAX_DEPTH,
     auto_canonicalize,
     collect_data_hashes,
     is_canonical_file_arg,
+    normalize_for_hash,
 )
 from claimtrail.store import get_store
 
@@ -370,3 +372,86 @@ def test_tracked_with_explicit_data_files_does_not_warn(tmp_path):
         issubclass(x.category, ClaimtrailHashWarning) and "data_files" in str(x.message)
         for x in w
     )
+
+
+# ---------------------------------------------------------------------------
+# canonical_file / normalize_for_hash regressions found by mutation testing.
+# ---------------------------------------------------------------------------
+
+
+def test_canonical_file_mtime_key_and_format(tmp_path):
+    p = _write(tmp_path, "m.csv", b"data")
+    d = canonical_file(p)
+    assert "mtime" in d
+    # ISO-8601 UTC, second precision, Z suffix - not re-cased or reshaped.
+    import re
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", d["mtime"])
+
+
+def test_normalize_for_hash_reduces_canonical_file_to_tag_and_sha(tmp_path):
+    p = _write(tmp_path, "n.csv", b"content")
+    cf = canonical_file(p)
+    out = normalize_for_hash(cf)
+    assert out == {CANONICAL_FILE_TAG: True, "sha": cf["sha"]}
+    # path/name/size/mtime must not survive into the hashed structure.
+    assert "path" not in out and "name" not in out and "mtime" not in out and "size" not in out
+
+
+def test_normalize_for_hash_leaves_non_file_values_unchanged():
+    assert normalize_for_hash(42) == 42
+    assert normalize_for_hash("plain string") == "plain string"
+    assert normalize_for_hash(None) is None
+
+
+def test_normalize_for_hash_recurses_into_dict_list_and_tuple(tmp_path):
+    p = _write(tmp_path, "r.csv", b"recurse")
+    cf = canonical_file(p)
+    payload = {"a": [cf, ("nested", cf)]}
+    out = normalize_for_hash(payload)
+    assert out["a"][0] == {CANONICAL_FILE_TAG: True, "sha": cf["sha"]}
+    assert out["a"][1] == ("nested", {CANONICAL_FILE_TAG: True, "sha": cf["sha"]})
+
+
+def test_normalize_for_hash_recurses_into_namedtuple(tmp_path):
+    p = _write(tmp_path, "nt.csv", b"namedtuple")
+    cf = canonical_file(p)
+    Bundle = namedtuple("Bundle", ["csv"])
+    out = normalize_for_hash(Bundle(csv=cf))
+    assert out == Bundle(csv={CANONICAL_FILE_TAG: True, "sha": cf["sha"]})
+
+
+def test_normalize_for_hash_does_not_treat_non_tuple_with_fields_as_namedtuple():
+    """The namedtuple branch guards with `isinstance(value, tuple) and
+    hasattr(value, "_fields")`. A plain object that merely has a
+    `_fields` attribute but is not a tuple must fall through unchanged,
+    not be treated as a namedtuple (which would crash trying to
+    construct `type(value)(*[...])` on an arbitrary class)."""
+
+    class FakeFields:
+        _fields = ("a", "b")
+
+    obj = FakeFields()
+    assert normalize_for_hash(obj) is obj
+
+
+def test_normalize_for_hash_depth_boundary_matches_collect_data_hashes():
+    """The depth limit must trip at the same point as
+    collect_data_hashes's: exactly _VISITOR_MAX_DEPTH levels of nesting
+    is fine, one more raises."""
+    at_limit: dict = {}
+    cur = at_limit
+    for _ in range(_VISITOR_MAX_DEPTH - 1):
+        nxt: dict = {}
+        cur["x"] = nxt
+        cur = nxt
+    # Exactly at the limit: must not raise.
+    normalize_for_hash(at_limit)
+
+    too_deep: dict = {}
+    cur = too_deep
+    for _ in range(_VISITOR_MAX_DEPTH + 5):
+        nxt: dict = {}
+        cur["x"] = nxt
+        cur = nxt
+    with pytest.raises(ClaimtrailTraversalError):
+        normalize_for_hash(too_deep)

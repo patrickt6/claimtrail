@@ -125,3 +125,64 @@ def test_v4_store_migrates_additively(tmp_path):
     assert "assertions" in cols and version == "5"
     kept = reopened.get_claim(cid)
     assert kept.text == "kept" and kept.assertions is None
+
+
+# ---------------------------------------------------------------------------
+# Boundary and type-guard regressions, found by mutation testing.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_path_index_out_of_bounds_raises_keyerror():
+    """Exact-boundary case: index == len(list) is out of bounds and must
+    raise KeyError. `not isinstance(node, (list, tuple)) or int(index) >=
+    len(node)` - a mutant that changed `>=` to `>` would accept this."""
+    with pytest.raises(KeyError):
+        resolve_path({"items": [1, 2, 3]}, "items[3]")
+    # in-bounds boundary must still work
+    assert resolve_path({"items": [1, 2, 3]}, "items[2]") == 3
+
+
+def test_resolve_path_index_on_non_sequence_raises_keyerror():
+    """Indexing into a node that is not a list/tuple must raise KeyError,
+    not fall through to a raw subscript. A mutant that changed the
+    guard's `or` to `and` only raises when BOTH the type check and the
+    bounds check fail, which a non-sequence with `len() == 0` slips
+    past."""
+    with pytest.raises(KeyError):
+        resolve_path({"items": {}}, "items[0]")
+
+
+def test_resolve_path_field_on_non_dict_raises_keyerror():
+    """Resolving a field on a node that is not a dict must raise KeyError.
+    A mutant that changed the guard's `or` to `and` here has the same
+    escape hatch as the index case above."""
+    with pytest.raises(KeyError):
+        resolve_path({"items": [1, 2, 3]}, "items.field")
+
+
+def test_tolerance_accepts_exactly_at_the_boundary():
+    """actual exactly `tol` away from the target must be accepted: the
+    comparison is `<=`, not `<`. This is the boundary case my Hypothesis
+    property test (test_tolerance_assertion_accepts_within_tolerance)
+    never hits exactly, since it samples a strict fraction of tol."""
+    exp = parse_expectation("x ~= 4.0 +- 0.5")
+    assert evaluate(exp, {"x": 4.5}).ok
+    assert evaluate(exp, {"x": 3.5}).ok
+
+
+def test_tolerance_rejects_bool_actual():
+    """A bool actual must raise TypeError for `~=`, not silently compare
+    as 0/1. `isinstance(actual, bool) or not isinstance(actual, (int,
+    float))` - since bool is an int subclass, only the explicit `or`
+    form (not `and`) can ever trip on a bool value."""
+    exp = parse_expectation("x ~= 1 +- 0.5")
+    result = evaluate(exp, {"x": True})
+    assert not result.ok
+    assert "number" in result.message
+
+
+def test_tolerance_rejects_non_numeric_actual():
+    exp = parse_expectation("x ~= 1 +- 0.5")
+    result = evaluate(exp, {"x": "one"})
+    assert not result.ok
+    assert "number" in result.message

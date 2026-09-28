@@ -144,6 +144,48 @@ def test_latex_escape_passes_math_through():
 # ---------------------------------------------------------------------------
 
 
+def test_notes_are_persisted():
+    """notes was not asserted by any existing test, so a mutant that
+    dropped it (notes=None) on the way into the Claim record survived."""
+    cid = claim("a claim with notes", value_numeric=1, notes="context for a reviewer")
+    rec = get_store().get_claim(cid)
+    assert rec.notes == "context for a reviewer"
+
+
+def test_deterministic_id_distinguishes_value_numeric():
+    """deterministic_id derives the id from (text, computation_id,
+    value_numeric); two calls with the same text but different
+    value_numeric must get different ids, not collapse onto one."""
+    id_a = claim("same text", deterministic_id=True, value_numeric=1)
+    id_b = claim("same text", deterministic_id=True, value_numeric=2)
+    assert id_a != id_b
+
+
+def test_deterministic_id_distinguishes_computation_id(computation_id):
+    id_a = claim("same text", deterministic_id=True, computation_id=computation_id)
+    id_b = claim("same text", deterministic_id=True, computation_id=None)
+    assert id_a != id_b
+
+
+def test_deterministic_id_reruns_collapse_to_one_row():
+    """The whole point of deterministic_id: an unchanged rerun is a
+    no-op, not a new row."""
+    claim("stable text", deterministic_id=True, value_numeric=5)
+    claim("stable text", deterministic_id=True, value_numeric=5)
+    claim("stable text", deterministic_id=True, value_numeric=5)
+    out = export_latex()
+    assert out.count("stable text") == 1
+
+
+def test_default_claim_id_is_random_per_call():
+    """Without claim_id or deterministic_id, two calls with identical
+    text must NOT collapse to the same id (a mutant flipped the
+    deterministic_id default to True, which would collapse them)."""
+    id_a = claim("identical text", value_numeric=1)
+    id_b = claim("identical text", value_numeric=1)
+    assert id_a != id_b
+
+
 def test_reregistering_same_claim_id_with_identical_content_is_a_noop():
     claim("stable text", claim_id="stable_claim", value_numeric=1)
     claim("stable text", claim_id="stable_claim", value_numeric=1)

@@ -471,3 +471,97 @@ def test_migration_from_simulated_v2_store(tmp_path):
         ).fetchone()
         assert row["payload_hash"] is not None
         assert row["output_hash_algorithm"] == "blake2b"
+
+
+# ---------------------------------------------------------------------------
+# Field-level round-trip regressions, found by mutation testing: fields that
+# every existing test happened to leave at a falsy default, so a mutant that
+# dropped or defaulted the field survived.
+
+
+def test_output_hash_algorithm_is_preserved_when_set():
+    """A non-default output_hash_algorithm must round-trip unchanged, not
+    get silently replaced by the blake2b default. insert_computation uses
+    `comp.output_hash_algorithm or PAYLOAD_HASH_ALGORITHM`; the interesting
+    case is a truthy, non-default value, which `or` must pass through."""
+    store = get_store()
+    comp = _fresh_computation("algo_probe")
+    comp.output_hash_algorithm = "sha256"
+    store.insert_computation(comp)
+    fetched = store.get_computation("algo_probe")
+    assert fetched.output_hash_algorithm == "sha256"
+
+
+def test_code_dirty_true_is_preserved():
+    """code_dirty=True must round-trip as True, not collapse to None."""
+    store = get_store()
+    comp = _fresh_computation("dirty_probe")
+    comp.code_dirty = True
+    store.insert_computation(comp)
+    fetched = store.get_computation("dirty_probe")
+    assert fetched.code_dirty is True
+
+
+def test_code_dirty_false_is_preserved():
+    """code_dirty=False must round-trip as False, not True or None."""
+    store = get_store()
+    comp = _fresh_computation("clean_probe")
+    comp.code_dirty = False
+    store.insert_computation(comp)
+    fetched = store.get_computation("clean_probe")
+    assert fetched.code_dirty is False
+
+
+def test_get_computation_exact_round_trips_tags():
+    """get_computation_exact must return the same tags as get_computation,
+    not an empty or None tag dict."""
+    store = get_store()
+    comp = _fresh_computation("tagged_probe")
+    comp.tags = {"paper": "p1", "experiment": "e1"}
+    store.insert_computation(comp)
+    fetched = store.get_computation_exact("tagged_probe")
+    assert fetched is not None
+    assert fetched.tags == {"paper": "p1", "experiment": "e1"}
+
+
+def test_get_computation_exact_returns_none_for_unknown_id():
+    store = get_store()
+    assert store.get_computation_exact("does-not-exist") is None
+
+
+def test_insert_claim_derives_paper_tag_from_tags_when_attribute_unset():
+    """claims.claim() never sets Claim.paper_tag directly - it only sets
+    `tags={"paper": ...}` - so insert_claim's fallback
+    (`claim.paper_tag if ... else claim.tags.get("paper")`) is what
+    actually populates the paper_tag column for every paper-tagged claim
+    made through the public API. If that fallback were skipped, paper_tag
+    would stay None and the CHECK constraint gating unbacked paper claims
+    would never see the tag."""
+    store = get_store()
+    store.insert_computation(_fresh_computation("paper_probe_comp"))
+    rec = Claim(
+        id="paper_probe_claim",
+        text="a paper-tagged claim",
+        value_numeric=None,
+        computation_id="paper_probe_comp",
+        created_at=utc_now_iso(),
+        notes=None,
+        tags={"paper": "my-paper"},  # paper_tag attribute left at its default (None)
+    )
+    assert rec.paper_tag is None
+    store.insert_claim(rec)
+    with store._connect() as conn:
+        row = conn.execute(
+            "SELECT paper_tag FROM claims WHERE id = 'paper_probe_claim'"
+        ).fetchone()
+    assert row["paper_tag"] == "my-paper"
+
+
+def test_get_computation_exact_does_not_prefix_match():
+    """Unlike get_computation, get_computation_exact must not fall back to
+    a unique-prefix match: the collision-check call site needs to know
+    whether THIS exact id is taken, not some other id sharing a prefix."""
+    store = get_store()
+    store.insert_computation(_fresh_computation("prefixmatch12345"))
+    assert store.get_computation("prefixmatch1") is not None  # prefix match works
+    assert store.get_computation_exact("prefixmatch1") is None  # exact does not
