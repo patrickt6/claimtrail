@@ -36,7 +36,12 @@ def compute_thing(N):
 
 Every call records a row keyed on
 `blake2b(function_name | input_hash | code_sha)`. The same inputs and the same
-code collapse to the same id, so repeats overwrite in place.
+code collapse to the same id and produce the same output, so a repeat is a
+no-op: the existing row is left as-is, not overwritten. (A same-id call
+whose recorded content genuinely differs - which should only happen if the
+function is non-deterministic or the id collides - raises
+`ClaimtrailCollisionError`; see the claims section below for the same
+safety net applied to claim rows.)
 
 **If the function reads a file by path, declare it.** The `data_files`
 parameter makes the file's *contents* part of the input hash, not just the path
@@ -91,7 +96,7 @@ Claims are what end up in the paper as `\fact{...}` macros.
 claimtrail.claim(
     "No polynomial of bidegree at most (6, 50) annihilates [x]_q modulo q^2000.",
     computation_id="<some_comp_id>",
-    claim_id="emptiness_x",            # stable id; re-runs overwrite
+    claim_id="emptiness_x",            # stable id
     tags={"paper": "your-paper"},      # paper tag gates this claim
 )
 ```
@@ -105,7 +110,8 @@ exported LaTeX.
 
 If you genuinely need to stage a claim before its computation lands (for
 example, writing a draft from notes while a long scan is still running), pass
-`allow_unbacked=True` and back-attach later:
+`allow_unbacked=True` and back-attach later with `force=True` (see "Claim-id
+collisions and reviewed replacement" below for why `force` is required here):
 
 ```python
 # Stage now:
@@ -116,30 +122,68 @@ claimtrail.claim(
     claim_id="staged_claim",
 )
 
-# Back-attach after the computation registers:
+# Back-attach after the computation registers. computation_id is changing
+# from None to a real id, which is a content change under the same
+# claim_id, so this needs force=True (see below).
 claimtrail.claim(
     "A statement to be backed once the scan finishes.",
     tags={"paper": "your-paper"},
     computation_id="<the_real_comp_id>",
-    claim_id="staged_claim",           # same id; overwrites in place
+    claim_id="staged_claim",
+    force=True,
 )
 ```
 
 `claimtrail lint` flags every unbacked paper claim, so a pre-flight catches anything
 left staged.
 
+### Claim-id collisions and reviewed replacement
+
+A `claim_id` is a promise: something may already cite it, so re-registering
+it should not silently change what it means. Re-registering an existing
+`claim_id` (explicit or via `deterministic_id=True`) with the SAME content
+(text, `computation_id`, `value_numeric`, paper tag, unbacked flag, and
+`expect` assertions all unchanged) is a no-op - the row is left as-is.
+Re-registering it with ANY of that content changed raises
+`claimtrail.ClaimtrailCollisionError` by default. This mirrors the store's
+collision safety for computations (`store.py`'s `_COMP_IDENTITY_COLUMNS`):
+a stable id is not supposed to change meaning underneath a caller who is
+already relying on it.
+
+To deliberately replace a claim row under its existing id - the case that
+actually comes up: a reviewed correction moved a number, and the claim needs
+to point at the new computation - pass `force=True`:
+
+```python
+claimtrail.claim(
+    "The approval gap is 4.1 points.",   # text changed after a reviewed fix
+    computation_id="<the_corrected_comp_id>",
+    claim_id="approval_gap",
+    expect=["outputs.gap ~= 4.1 +- 0.05"],
+    tags={"paper": "your-paper"},
+    force=True,
+)
+```
+
+Gate `force=True` behind your own review step (a CLI flag naming which ids
+may be replaced this run, checked-in code review, whatever your project
+already uses to gate a reviewed change) - claimtrail does not gate it for
+you beyond requiring the caller to opt in explicitly.
+
 ### Three claim-id strategies
 
 | Need | Use | Effect |
 |---|---|---|
 | One-off interactive claim | default | random hex id every call |
-| Idempotent batch script | `deterministic_id=True` | id derived from `(text, comp_id, value_numeric)` |
-| Stable claim that updates with new data | `claim_id="<your_key>"` | you control the id; overwrites in place |
+| Idempotent batch script | `deterministic_id=True` | id derived from `(text, comp_id, value_numeric)`; unchanged reruns no-op, changed content raises unless `force=True` |
+| Stable claim that updates with new data | `claim_id="<your_key>"` | you control the id; unchanged reruns no-op, changed content raises unless `force=True` |
 
 Use `claim_id=...` for any claim whose text will evolve as you add
 computations (for example a bound widening from `(6,50)` to `(7,50)`).
-Re-running the registration script then updates the same row instead of leaving
-stale claims.
+Re-running the registration script with `force=True` for the ids that
+changed then updates those rows instead of leaving stale claims; ids you did
+not pass `force` for still raise, so an unreviewed content change is caught
+rather than silently applied.
 
 ## Tags
 

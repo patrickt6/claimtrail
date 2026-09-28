@@ -62,15 +62,29 @@ def claim(
     tags: dict[str, Any] | None = None,
     allow_unbacked: bool = False,
     expect: Iterable[str | dict | Expectation] | None = None,
+    force: bool = False,
 ) -> str:
     """Register a numerical or qualitative claim. Returns the claim id.
 
     By default a fresh random id is minted on every call (so the same text
     can be claimed multiple times). For idempotent batch-registration
     scripts, pass `deterministic_id=True` to derive the id from
-    `(text, computation_id, value_numeric)` - re-runs then overwrite the
-    same row instead of duplicating. Or pass an explicit `claim_id` to
-    control it directly.
+    `(text, computation_id, value_numeric)`; re-runs with unchanged text,
+    computation_id, and value_numeric then produce the same id AND the same
+    row content, which is a silent no-op, not a duplicate. Or pass an
+    explicit `claim_id` to control it directly.
+
+    Re-registering an existing `claim_id` (explicit or deterministic) with
+    DIFFERENT content - a different `text`, `computation_id`,
+    `value_numeric`, paper tag, unbacked flag, or set of `expect`
+    assertions - does NOT overwrite the stored row by default. It raises
+    :class:`claimtrail.store.ClaimtrailCollisionError`, the same
+    collision-safety the store applies to computations: a claim_id is
+    meant to be stable, so a silent content change under an id someone may
+    already be citing is exactly the failure mode this refuses. Pass
+    `force=True` to replace the row anyway - the deliberate escape valve
+    for a reviewed correction (see the "reviewed claim replacement"
+    section of INTEGRATION.md).
 
     Args:
         tags: arbitrary key/value pairs stored in the `claim_tags` table.
@@ -85,6 +99,10 @@ def claim(
             computation's payload. The claim is refused with
             :class:`ClaimAssertionError` if any of them is false, and they
             are checked again by ``claimtrail check`` and ``claimtrail lint``.
+        force: replace an existing row under the same `claim_id` even when
+            its content differs, instead of raising
+            :class:`claimtrail.store.ClaimtrailCollisionError`. Off by
+            default; only pass it for a deliberate, reviewed replacement.
     """
     if not text or not isinstance(text, str):
         raise ValueError("claim text must be a non-empty string")
@@ -134,7 +152,7 @@ def claim(
         tags=norm_tags,
         assertions=_assertions.dumps(expectations),
     )
-    get_store().insert_claim(rec)
+    get_store().insert_claim(rec, force=force)
     return cid
 
 

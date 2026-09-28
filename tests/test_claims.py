@@ -6,7 +6,7 @@ import pytest
 import claimtrail
 from claimtrail import tracked
 from claimtrail.claims import claim, export_latex
-from claimtrail.store import get_store
+from claimtrail.store import ClaimtrailCollisionError, get_store
 
 
 @pytest.fixture
@@ -135,3 +135,79 @@ def test_latex_escape_passes_math_through():
     cid2 = claim("growth rate is 50% per N", value_numeric=50)
     out2 = export_latex()
     assert "50\\%" in out2
+
+
+# ---------------------------------------------------------------------------
+# claim_id collisions: default is a safety net, force=True is the deliberate
+# escape valve. See INTEGRATION.md's "Claim-id collisions and reviewed
+# replacement" section, which this pins.
+# ---------------------------------------------------------------------------
+
+
+def test_reregistering_same_claim_id_with_identical_content_is_a_noop():
+    claim("stable text", claim_id="stable_claim", value_numeric=1)
+    claim("stable text", claim_id="stable_claim", value_numeric=1)
+    rec = get_store().get_claim("stable_claim")
+    assert rec.text == "stable text"
+    assert rec.value_numeric == 1
+
+
+def test_reregistering_same_claim_id_with_different_content_raises_by_default():
+    claim("first version", claim_id="drifting_claim", value_numeric=1)
+    with pytest.raises(ClaimtrailCollisionError):
+        claim("second version", claim_id="drifting_claim", value_numeric=2)
+    # The original row must be untouched.
+    rec = get_store().get_claim("drifting_claim")
+    assert rec.text == "first version"
+    assert rec.value_numeric == 1
+
+
+def test_force_true_replaces_an_existing_claim_row(computation_id):
+    claim("first version", claim_id="reviewed_claim", value_numeric=1)
+    claim(
+        "second version",
+        claim_id="reviewed_claim",
+        value_numeric=2,
+        computation_id=computation_id,
+        force=True,
+    )
+    rec = get_store().get_claim("reviewed_claim")
+    assert rec.text == "second version"
+    assert rec.value_numeric == 2
+    assert rec.computation_id == computation_id
+
+
+def test_back_attaching_a_staged_claim_needs_force():
+    """The exact INTEGRATION.md workflow: stage unbacked, then back-attach
+    a real computation_id under the same claim_id. computation_id is going
+    from None to a real id, which is a content change, so this must raise
+    without force=True and succeed with it."""
+
+    @tracked(tags={"constant": "e"})
+    def g(N):
+        return N + 1
+    g(5)
+    comp_id = claimtrail.find()[0].id
+
+    claim(
+        "staged fact",
+        tags={"paper": "p"},
+        allow_unbacked=True,
+        claim_id="staged_claim",
+    )
+    with pytest.raises(ClaimtrailCollisionError):
+        claim(
+            "staged fact",
+            tags={"paper": "p"},
+            computation_id=comp_id,
+            claim_id="staged_claim",
+        )
+    claim(
+        "staged fact",
+        tags={"paper": "p"},
+        computation_id=comp_id,
+        claim_id="staged_claim",
+        force=True,
+    )
+    rec = get_store().get_claim("staged_claim")
+    assert rec.computation_id == comp_id
