@@ -1,6 +1,6 @@
 [project]
 name = "claimtrail"
-version = "0.5.1"
+version = "0.5.2"
 description = "Every number in a report keeps a trail back to the computation that produced it. Record, re-run, verify, audit."
 authors = [{name = "Patrick Taylor"}]
 readme = "README.md"

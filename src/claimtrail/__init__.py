@@ -49,7 +49,7 @@ from .audit_paper import (
 )
 from .properties import Property, PropertyResult, ClaimtrailPropertyError
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 
 # Names from before the qprov -> claimtrail rename. Kept so existing
 # scripts and `except QprovCollisionError:` blocks keep working.
