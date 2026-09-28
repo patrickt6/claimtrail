@@ -67,6 +67,8 @@ For LaTeX papers there's `audit-paper`.
 
 Try the full demo on synthetic data: `python examples/lending-review/run_demo.py`.
 
+For a module-by-module walkthrough of the architecture, data model, and the hmda-audit story, see [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md).
+
 ## Limits
 
 Verifier names come from an env var or git config, so they're attribution, not
