@@ -627,57 +627,38 @@ documented escape hatch that loses the older row's history
 
 ## The hmda-audit story
 
-The claimtrail README states: "It already caught one in my own work: the
-[hmda-audit] README said 5 of its 14 metrics were measured on the full
-file, and its own ledger says 6" (`README.md`). This section traces that
-claim to its evidence in the `hmda-audit` repository
-(`github.com/patrickt6/hmda-audit`, confirmed public via `gh repo view`).
+The claimtrail README states that claimtrail already caught a real
+mismatch in the author's own work: the `hmda-audit` project
+(`github.com/patrickt6/hmda-audit`) had a README that stated its count of
+full-file (MEASURED) metrics as 5, while the project's own metrics ledger
+(`results/metrics_ledger.json`, a committed JSON file recording each
+metric's measurement status) showed 6. Running `claimtrail audit-report`
+against the README surfaced the disagreement as a DRIFT, because the
+stated count and the row-derived count disagreed. The fix was to correct
+the README's count to match what the ledger actually recorded, and to
+have the count itself come from counting the ledger rows going forward
+rather than being retyped by hand.
 
-The change is commit `11849ac84d897b435ef92a7461527094a393b1e8` in that
-repository, titled "Trace the README status paragraph to claimtrail
-records." Its commit message states directly: "The first audit found the
-README counted 5 MEASURED metrics where the ledger rows show 6; the
-README now says 6" (hmda-audit commit `11849ac`). The commit's diff to
-`README.md` shows the exact change: the old text read "5 MEASURED (row
-counts, DuckDB-vs-pandas speed and memory at full national scale, test
-count, governance controls), 6 SAMPLE_BASED (...)"; the new text reads "6
-MEASURED (row counts, DuckDB-vs-pandas speed and memory at full national
-scale, the full-file four-fifths screen, test count, governance
-controls), 6 SAMPLE_BASED (...)" (hmda-audit commit `11849ac`, diff to
-`README.md`). The added `docs/CLAIMS.md` explains the discrepancy in its
-own words: "The first `claimtrail audit-report README.md` reported one
-DRIFT: the README said 5 metrics were MEASURED. Counting the per-metric
-rows in `results/metrics_ledger.json` gives 6 (M1, M3, M4, M5, M9, M10).
-The README had left out M5, the full-file four-fifths screen, and listed
-four-fifths as sample-based" (hmda-audit `docs/CLAIMS.md`).
+The `hmda-audit` repository was later deleted and recreated with a single
+clean commit, so the specific commit that made this fix is no longer
+part of its public history, and this document does not cite one. What is
+still verifiable directly in the current repository: `results/metrics_ledger.json`
+records a `"status"` field per metric, and counting the entries with
+`"status": "MEASURED"` gives 6, matching what `hmda-audit`'s current
+results table states. `hmda-audit` also now runs claimtrail on every push
+and pull request, via `.github/workflows/claims.yml` in that repository:
+the job installs claimtrail, re-runs `scripts/record_claims.py` (which
+fails if a committed results file changed without a corresponding claim
+update), runs `claimtrail check --paper hmda-audit` (every structured
+assertion must hold), runs `claimtrail audit-report README.md` (every
+number in the results table must be supported), and runs `claimtrail
+verifications --check-chain` (the verification log must be intact). A
+regression of the same kind - a stated count drifting from what the
+underlying data supports - would fail that job rather than ship quietly.
 
-The mechanism behind that count is `scripts/record_claims.py`'s
-`register_status_counts()` function, which builds the count "from the
-rows, not copied from any summary line, so a summary that disagrees with
-its own table shows up as drift" (hmda-audit
-`scripts/record_claims.py:58-62`), using `Counter(m["status"] for m in
-ledger["metrics"])` over the per-metric entries in
-`results/metrics_ledger.json`. Reading that file directly confirms six
-entries with `"status": "MEASURED"`: M1, M3, M4, M5, M9, M10. The script
-then states the corrected claim with a structured assertion,
-`outputs.MEASURED == 6` (hmda-audit `scripts/record_claims.py:118-124`),
-so a future edit that quietly reintroduces the old count of 5 would fail
-`claimtrail check` rather than pass silently.
-
-One caveat found while tracing this: `results/metrics_ledger.json` also
-carries a `"counts_per_status_md"` field holding the *original* pre-fix
-counts (`MEASURED: 5, SAMPLE_BASED: 6, UNMEASURABLE: 1,
-PARTIALLY_FIXED_UNVERIFIED: 1`), which its own `"conflicting_count_note"`
-field says is kept deliberately because it "differs from
-docs/NATIONAL-NUMBERS.md's internal status table" and "both sources are
-kept; they conflict" (hmda-audit `results/metrics_ledger.json`). Note also
-that this pre-fix summary's four numbers (5 + 6 + 1 + 1) sum to 13, not
-14; the corrected, row-derived count (6 + 6 + 1 + 1 = 14) is the one
-`record_claims.py` asserts and the one the current README states. There is
-no test in the claimtrail repository itself that exercises this story
-(it lives entirely in the separate hmda-audit repository); this section
-is sourced from that repository's git history and committed files, not
-from claimtrail's own test suite.
+There is no test in the claimtrail repository itself that exercises this
+story; it is an anecdote about how claimtrail is used elsewhere, not a
+claim checked by claimtrail's own test suite.
 
 This story is also a live illustration of a naming collision worth
 flagging explicitly: hmda-audit's `results/metrics_ledger.json` (a
