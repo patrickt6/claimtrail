@@ -155,6 +155,63 @@ def auto_canonicalize(value: Any, strict: bool = False) -> Any:
     return value
 
 
+def normalize_for_hash(value: Any, depth: int = 0) -> Any:
+    """Return a copy of ``value`` with canonical_file descriptors reduced
+    to their content hash, for use when computing the input hash.
+
+    ``canonical_file()`` embeds the resolved absolute path and the mtime
+    alongside the content hash (``sha``) so the stored payload can show a
+    human where a file lived and when it was last touched. Those two
+    fields must not affect the computation id: the module and function
+    docstrings both state that same content should collapse to the same
+    id "regardless of which machine the file sits on", and a touch that
+    does not change content should not mint a new row either. Only the
+    tag and ``sha`` survive into the structure that gets hashed; the full
+    descriptor (path, name, size, mtime, sha) is untouched everywhere
+    else, including the stored payload, so audit and debugging still see
+    where the file was and when it changed on disk.
+
+    Walks the container shapes that ``serialize._to_jsonable`` actually
+    decomposes recursively: dict, list, tuple (including namedtuple,
+    which is a tuple subclass), and plain ``set``. Everything else -
+    ``frozenset``, a dataclass instance, a generic object, a numpy
+    array, a Sage type - is returned unchanged and hashed as an opaque
+    leaf (or via its own type-tagged encoding) by
+    ``serialize._to_jsonable``, exactly as before this function
+    existed. ``frozenset`` and dataclass instances are deliberately not
+    special-cased here: ``_to_jsonable`` does not decompose them either
+    (both fall through to its final ``repr`` branch), and a dataclass
+    can define ``__post_init__`` or ``init=False`` fields that make
+    reconstructing one with ``dataclasses.replace`` unsafe to attempt
+    generically. A ``canonical_file`` descriptor is a plain ``dict``,
+    so it cannot be hidden inside a ``set``/``frozenset`` element
+    anyway (dicts are unhashable).
+    """
+    if depth > _VISITOR_MAX_DEPTH:
+        from .tracking import ClaimtrailTraversalError
+        raise ClaimtrailTraversalError(
+            f"normalize_for_hash: input structure exceeds depth limit "
+            f"{_VISITOR_MAX_DEPTH}. Either a cycle in the inputs or a "
+            f"pathologically nested object - refusing to silently "
+            f"truncate."
+        )
+    if isinstance(value, dict):
+        if value.get(CANONICAL_FILE_TAG):
+            return {CANONICAL_FILE_TAG: True, "sha": value.get("sha")}
+        return {k: normalize_for_hash(v, depth + 1) for k, v in value.items()}
+    if isinstance(value, list):
+        return [normalize_for_hash(v, depth + 1) for v in value]
+    if isinstance(value, tuple) and hasattr(value, "_fields"):
+        return type(value)(
+            *[normalize_for_hash(getattr(value, f), depth + 1) for f in value._fields]
+        )
+    if isinstance(value, tuple):
+        return tuple(normalize_for_hash(v, depth + 1) for v in value)
+    if isinstance(value, set):
+        return {normalize_for_hash(v, depth + 1) for v in value}
+    return value
+
+
 def collect_data_hashes(
     payload: Any,
     out: dict[str, str] | None = None,

@@ -131,6 +131,52 @@ def test_unavailable_source_does_not_crash():
     assert payload["function_source"] == "<unavailable>"
 
 
+def test_collision_does_not_corrupt_existing_row(tmp_path):
+    """Regression: a genuine id collision (same declared name, same
+    input, but a different function body) must not touch the payload
+    already on disk for the existing row.
+
+    Before the check-before-write fix, the wrapper called
+    ``store.write_payload`` (which unconditionally overwrites the file
+    at that id) *before* ``store.insert_computation`` discovered the
+    conflict and raised ``ClaimtrailCollisionError``. The exception
+    propagated correctly, but the older row's payload file had already
+    been clobbered with the new, mismatching bytes: a later
+    ``read_payload`` on the original id raised ``PayloadTamperedError``
+    even though nobody touched the file directly. The fix checks for a
+    content-equivalent existing row before writing anything.
+    """
+    from claimtrail.store import ClaimtrailCollisionError
+
+    @tracked(name="same_name")
+    def version_one(x):
+        return x + 1
+
+    @tracked(name="same_name")
+    def version_two(x):
+        # A body that differs textually but returns the same value for
+        # this input, so output_hash alone would not catch the change.
+        y = x + 1
+        return y
+
+    version_one(10)
+    comps = claimtrail.find()
+    assert len(comps) == 1
+    old_id = comps[0].id
+    old_payload = get_store().read_payload(old_id)
+
+    with pytest.raises(ClaimtrailCollisionError):
+        version_two(10)
+
+    # The old row must still be exactly as it was: same row count, and
+    # its payload must still verify against its own recorded hash.
+    comps_after = claimtrail.find()
+    assert len(comps_after) == 1
+    assert comps_after[0].id == old_id
+    reread = get_store().read_payload(old_id)  # raises PayloadTamperedError on HEAD's bug
+    assert reread == old_payload
+
+
 def test_hardware_fields_populated():
     @tracked
     def f():

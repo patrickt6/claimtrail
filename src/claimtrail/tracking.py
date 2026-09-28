@@ -26,10 +26,10 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, TypeVar
 
 from . import gitinfo, hardware
-from .inputs import auto_canonicalize, collect_data_hashes
+from .inputs import auto_canonicalize, collect_data_hashes, normalize_for_hash
 from .properties import Property, PropertyResult, ClaimtrailPropertyError
 from .serialize import canonical_dumps, hash_text, hash_value
-from .store import Computation, get_store, utc_now_iso
+from .store import Computation, ClaimtrailCollisionError, Store, get_store, utc_now_iso
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -153,6 +153,64 @@ def _safe_module(func: Callable[..., Any]) -> str | None:
 
 def _make_id(function_name: str, input_hash: str, code_sha: str | None) -> str:
     return hash_text(f"{function_name}|{input_hash}|{code_sha or ''}")
+
+
+def _skip_write_or_raise(store: Store, comp_id: str, payload: dict) -> bool:
+    """Decide, before any bytes are written, whether ``comp_id`` already
+    has a row that this write should collapse onto.
+
+    Historically the wrapper wrote the payload file and the SQLite row
+    unconditionally, and only ``Store.insert_computation`` discovered a
+    same-id conflict - by which point ``write_payload`` had already
+    overwritten the *older* row's payload file on disk with the new
+    (mismatching) bytes. ``insert_computation`` then raised
+    :class:`ClaimtrailCollisionError`, but the damage to the existing row
+    was already done: a later ``read_payload`` on the old id raised
+    ``PayloadTamperedError`` because the stored hash no longer matched
+    what was on disk. That is a real pre-existing bug, independent of
+    the ``canonical_file`` normalization above; this function's job is
+    to make the check happen first so the older row is never touched.
+
+    Returns ``True`` when the caller should skip writing entirely - a
+    row already exists under this id and its payload is
+    content-equivalent (via :func:`normalize_for_hash`, so a
+    ``canonical_file`` descriptor's path/mtime/name/size do not count
+    as a difference) to the one about to be written. The first writer
+    wins; the existing row's payload and metadata are left alone.
+
+    Raises :class:`ClaimtrailCollisionError` when a row exists under this
+    id with genuinely different content (for example, the function body
+    changed but happened to keep the same git commit and produce the
+    same output for this input). Nothing has been written to disk when
+    this raises.
+
+    Returns ``False`` (proceed with the normal write) when no row
+    exists yet under this id.
+    """
+    existing = store.get_computation_exact(comp_id)
+    if existing is None:
+        return False
+    try:
+        existing_payload = store.read_payload(comp_id, verify_hash=False)
+    except FileNotFoundError:
+        # Row exists but its payload file is missing; let the normal
+        # write path proceed and let insert_computation's own check
+        # (or the write itself) surface whatever is wrong.
+        return False
+    existing_norm = canonical_dumps(normalize_for_hash(existing_payload))
+    new_norm = canonical_dumps(normalize_for_hash(payload))
+    if existing_norm == new_norm:
+        return True
+    raise ClaimtrailCollisionError(
+        f"computation id {comp_id!r} already exists with different "
+        f"content (checked before writing, so the existing row's "
+        f"payload was not touched).\n"
+        f"Treat as either a hash collision (rare) or a coding bug at "
+        f"the call site - most commonly, the tracked function's body "
+        f"changed without its git commit or its inputs changing. Pass "
+        f"force=True to Store.insert_computation to override (the "
+        f"older row's audit history will be lost)."
+    )
 
 
 class _Capture:
@@ -338,7 +396,10 @@ def tracked(
                 kwargs = dict(bound.kwargs)
 
             input_payload = {"args": list(args), "kwargs": dict(kwargs)}
-            input_hash = hash_value(input_payload)
+            # The computation id must not depend on a canonical_file
+            # descriptor's path or mtime - only its content hash. See
+            # inputs.normalize_for_hash for why.
+            input_hash = hash_value(normalize_for_hash(input_payload))
             data_hashes = collect_data_hashes(input_payload)
             canonical_data_hash = (
                 json.dumps(data_hashes, sort_keys=True, separators=(",", ":"))
@@ -377,15 +438,16 @@ def tracked(
                     cap.warnings_as_dicts(),
                     {"type": error_type, "message": error_message, "traceback": error_tb},
                 )
-                payload_path, payload_hash = store.write_payload(comp_id, payload)
-                comp = _make_computation(
-                    comp_id, function_name, module, input_hash, None,
-                    git_info, hw, runtime, started, ended,
-                    status, error_type, error_message, payload_path,
-                    tags or {}, canonical_data_hash,
-                    payload_hash=payload_hash,
-                )
-                store.insert_computation(comp)
+                if not _skip_write_or_raise(store, comp_id, payload):
+                    payload_path, payload_hash = store.write_payload(comp_id, payload)
+                    comp = _make_computation(
+                        comp_id, function_name, module, input_hash, None,
+                        git_info, hw, runtime, started, ended,
+                        status, error_type, error_message, payload_path,
+                        tags or {}, canonical_data_hash,
+                        payload_hash=payload_hash,
+                    )
+                    store.insert_computation(comp)
                 raise
 
             runtime = time.perf_counter() - t0
@@ -444,16 +506,17 @@ def tracked(
                 None,
                 property_results=property_results or None,
             )
-            payload_path, payload_hash = store.write_payload(comp_id, payload)
-            comp = _make_computation(
-                comp_id, function_name, module, input_hash, output_hash,
-                git_info, hw, runtime, started, ended,
-                status, None, None, payload_path,
-                tags or {}, canonical_data_hash,
-                payload_hash=payload_hash,
-                property_results=property_results or None,
-            )
-            store.insert_computation(comp)
+            if not _skip_write_or_raise(store, comp_id, payload):
+                payload_path, payload_hash = store.write_payload(comp_id, payload)
+                comp = _make_computation(
+                    comp_id, function_name, module, input_hash, output_hash,
+                    git_info, hw, runtime, started, ended,
+                    status, None, None, payload_path,
+                    tags or {}, canonical_data_hash,
+                    payload_hash=payload_hash,
+                    property_results=property_results or None,
+                )
+                store.insert_computation(comp)
             return result
 
         wrapper.__qprov_source__ = source_lazy(func)  # type: ignore[attr-defined]

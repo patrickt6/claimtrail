@@ -23,7 +23,7 @@ import json
 import os
 from typing import Any
 
-from .inputs import collect_data_hashes
+from .inputs import collect_data_hashes, normalize_for_hash
 from .ledger import current_actor
 from .serialize import hash_value
 from .store import Computation, get_store, utc_now_iso
@@ -84,7 +84,11 @@ def register_external(
     if not isinstance(inputs, dict):
         raise ValueError("inputs must be a dict (use {} for no inputs)")
 
-    input_hash = hash_value(inputs)
+    # Mirror @tracked exactly: a canonical_file() descriptor anywhere in
+    # inputs must contribute only its content hash to input_hash, not its
+    # path or mtime, or the "id convention mirrors @tracked exactly"
+    # promise above breaks for retroactively-registered data_files rows.
+    input_hash = hash_value(normalize_for_hash(inputs))
     output_hash = hash_value(outputs) if outputs is not None else None
     comp_id = _make_id(function_name, input_hash, code_sha)
 

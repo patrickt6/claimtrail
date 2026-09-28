@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import dataclasses
+import os
+import time
 import warnings
 from collections import namedtuple
 from pathlib import Path
@@ -86,7 +88,15 @@ def test_tracked_with_data_files_replaces_path_string(tmp_path):
 
 
 def test_tracked_collapses_id_when_content_matches(tmp_path):
-    """Same content under two different filenames must yield the same id."""
+    """Same content under two different filenames must yield the same id
+    AND actually collapse to a single stored row.
+
+    ``canonical_file`` embeds ``path``, ``name``, ``size``, and ``mtime``
+    alongside the content hash so the payload can show a human where the
+    file lived. Those fields do not identify the computation - only
+    ``sha`` does - so ``input_hash`` (and therefore the row id) must not
+    depend on them. See ``inputs.normalize_for_hash``.
+    """
     a = _write(tmp_path, "a.csv", b"identical contents\n")
     b = _write(tmp_path, "b.csv", b"identical contents\n")
     assert hash_file(a) == hash_file(b)
@@ -98,14 +108,48 @@ def test_tracked_collapses_id_when_content_matches(tmp_path):
     scan(str(a))
     scan(str(b))
     rows = claimtrail.find()
-    # NOTE: ids differ because the descriptor includes the name and path.
-    # The content hash IS the same, which is what audit cares about. If we
-    # wanted name-blind collapse we'd strip name+path from the descriptor.
-    shas = set()
-    for r in rows:
-        assert r.canonical_data_hash is not None
-        shas.add(r.canonical_data_hash.split('"')[-2])  # peel sha from JSON
-    assert len(shas) == 1, "both rows should record the same content sha"
+    assert len(rows) == 1, "same content, different path/basename must collapse to one row"
+    assert rows[0].canonical_data_hash is not None
+    assert hash_file(a) in rows[0].canonical_data_hash
+
+
+def test_tracked_collapses_id_across_different_paths_same_basename(tmp_path):
+    """The exact scenario documented in HOW-IT-WORKS.md's Limits section:
+    two directories (e.g. two machines' clones) holding a file with the
+    same name and the same bytes must collapse to one row, not one row
+    per directory.
+    """
+    dir_a = tmp_path / "a"
+    dir_b = tmp_path / "b"
+    a = _write(dir_a, "data.csv", b"x,y\n1,2\n")
+    b = _write(dir_b, "data.csv", b"x,y\n1,2\n")
+    assert a != b
+
+    @tracked(data_files=["csv"])
+    def scan(csv):
+        return 42
+
+    scan(str(a))
+    scan(str(b))
+    rows = claimtrail.find()
+    assert len(rows) == 1, "same content under different paths must collapse to one row"
+
+
+def test_tracked_does_not_mint_new_row_on_mtime_only_touch(tmp_path):
+    """Touching a data_files argument's file (mtime changes, bytes do
+    not) must not mint a new row - the content hash is unchanged."""
+    p = _write(tmp_path, "data.csv", b"x,y\n1,2\n")
+
+    @tracked(data_files=["csv"])
+    def scan(csv):
+        return 42
+
+    scan(str(p))
+    time.sleep(1.1)  # mtime has second resolution in canonical_file()
+    os.utime(p, None)
+    scan(str(p))
+    rows = claimtrail.find()
+    assert len(rows) == 1, "an mtime-only touch must not create a new row"
 
 
 def test_tracked_id_differs_when_content_differs(tmp_path):

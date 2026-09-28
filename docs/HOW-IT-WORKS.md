@@ -267,19 +267,24 @@ comes from configuration ... It is attribution, not authentication ... it
 does not prevent someone with write access from rebuilding the whole
 chain" (`ledger.py:20-25`).
 
-### `inputs.py` (315 lines) - file-content fingerprints
+### `inputs.py` (372 lines) - file-content fingerprints
 
 `hash_file` (`inputs.py:47-57`) streams a file and returns its blake2b
 digest. `canonical_file` (`inputs.py:60-93`) returns a dict with the
 resolved absolute `path`, `name`, `size`, `mtime`, and content `sha`,
-meant to be embedded as a tracked argument. `collect_data_hashes`
-(`inputs.py:158-315`) walks an arbitrary input structure (dicts, lists,
-tuples, sets, namedtuples, dataclasses, objects with `__dict__`, and
-numpy structured arrays) looking for `canonical_file` descriptors, with a
-depth limit of 16 that raises `ClaimtrailTraversalError` past that point
-(`inputs.py:40-44`, `_VISITOR_MAX_DEPTH`). See "Design decisions" below
-for a measured gap between this module's stated goal and its actual
-behavior around `mtime`.
+meant to be embedded as a tracked argument. `normalize_for_hash`
+(`inputs.py:158-213`) reduces every `canonical_file` descriptor in a
+structure to just its tag and `sha` before hashing, so only content -
+never path, name, size, or mtime - determines a computation's id; see
+"Design decisions" below for the gap this closed and what it still does
+not cover. `collect_data_hashes` (`inputs.py:215-372`) walks an
+arbitrary input structure (dicts, lists, tuples, sets, namedtuples,
+dataclasses, objects with `__dict__`, and numpy structured arrays)
+looking for `canonical_file` descriptors, with a depth limit of 16 that
+raises `ClaimtrailTraversalError` past that point (`inputs.py:40-44`,
+`_VISITOR_MAX_DEPTH`). Unlike `normalize_for_hash`, this feeds
+`canonical_data_hash` (an audit-facing summary), not the id itself, so
+it keeps the wider traversal.
 
 ### `serialize.py` (232 lines) - canonical JSON
 
@@ -504,29 +509,59 @@ files changed. `write_payload` strips the gzip member's mtime
 (`store.py:523-529`) specifically so two machines writing the same
 content produce byte-identical files.
 
-**Hashing: what actually happens, and a gap between the design intent and
-the code.** The core id is `blake2b(function_name | input_hash |
-code_sha)` (`tracking.py:154-155`), and `input_hash` is
-`hash_value({"args": ..., "kwargs": ...})` over canonical JSON
-(`tracking.py:341`, `serialize.py:222-226`). For a `data_files`-declared
+**Hashing: a gap between the design intent and the code, found and
+closed.** The core id is `blake2b(function_name | input_hash |
+code_sha)` (`tracking.py:154-155`). For a `data_files`-declared
 argument, the decorator swaps the plain path string for the full
-`canonical_file(...)` dict (`inputs.py:60-93`) before hashing, and that
-dict contains not just the content hash but also the resolved absolute
-`path` and the file's `mtime`. The module docstrings state the intended
-result is that "two machines with the same file contents under different
-paths still collapse to the same computation id"
-(`inputs.py:19-21`, and again at `tracking.py:245-246`). Testing that
-directly (two files with byte-identical content at different paths, and
-the same file with its mtime touched but content unchanged) shows the
-actual result is the opposite of the stated intent: because `path` and
-`mtime` are part of the hashed dict, both cases produce a *different*
-`input_hash` and a different row, not the same one. Only re-running the
-exact same path with an untouched mtime collapses onto the existing row.
-This is a real conflict between what the docstrings say and what the code
-does; the content-hash field (`sha`) inside `canonical_file` does track
-content correctly and is what `verify`'s `_changed_inputs`
-(`verify.py:72-95`) uses to detect a swapped file, but the *identity* of
-the computation is not content-addressed the way the docs describe it.
+`canonical_file(...)` dict (`inputs.py:60-93`), and that dict contains
+not just the content hash but also the resolved absolute `path`, `name`,
+`size`, and `mtime`. The module docstrings state the intended result is
+that "two machines with the same file contents under different paths
+still collapse to the same computation id" (`inputs.py:16-20`).
+
+A direct test (two files with byte-identical content at different
+paths, and the same file with its mtime touched but content unchanged)
+showed the code did not do this: `input_hash` was
+`hash_value({"args": ..., "kwargs": ...})` over the raw payload
+(pre-fix), so `path` and `mtime` inside the embedded dict changed the
+hash and both cases produced a *different* row instead of collapsing
+onto the existing one. This was a real conflict between the docstrings
+and the code, and the docstrings described the intended design, so the
+code was fixed rather than the documentation: `input_hash` is now
+`hash_value(normalize_for_hash({"args": ..., "kwargs": ...}))`
+(`tracking.py:402`), where `normalize_for_hash` (`inputs.py:158-213`)
+reduces every `canonical_file` descriptor in the structure to
+`{tag, sha}` before hashing, dropping `path`, `name`, `size`, and
+`mtime`. The full descriptor is untouched everywhere else - the stored
+payload, `canonical_data_hash`, and `verify`'s `_changed_inputs`
+(`verify.py:72-95`) - so audit and debugging still see where a file
+lived and when it last changed on disk; only the row's *identity* is now
+content-only. `external.register_external` and `cli._check_id_drift`
+apply the same normalization, so retroactively-registered rows and the
+drift check agree with `@tracked`'s ids.
+
+Fixing the id surfaced a second, independent bug in the write path.
+Before this fix, the wrapper called `store.write_payload` - which
+unconditionally overwrites the payload file at a given id - *before*
+`store.insert_computation` checked for a same-id conflict. Two calls
+that now legitimately collapse to the same id (same content, different
+path) would hit that check, and if the check ever needed to distinguish
+"same content, different path" from "different content", the first
+writer's payload was already gone by the time it made that decision:
+`store.write_payload` had already replaced it, so `read_payload` on the
+*older* row started raising `PayloadTamperedError`, not because anyone
+tampered with anything, but because the store had overwritten its own
+prior write. This was confirmed directly with two functions of the same
+declared name and a genuinely different body: calling the second after
+the first raised `ClaimtrailCollisionError` as expected, but the first
+row's payload no longer read back cleanly. The fix
+(`tracking._skip_write_or_raise`, `tracking.py:158-213`) looks up the id
+*before* writing anything: if a row already exists and its payload is
+content-equivalent (via `normalize_for_hash`) to the one about to be
+written, the write is skipped and the existing row is kept untouched
+(first writer wins); if the existing row's content genuinely differs,
+`ClaimtrailCollisionError` is raised before any bytes are written, so
+the older row is never corrupted by the write that is about to fail.
 
 **What "collision" means.** `ClaimtrailCollisionError`
 (`store.py:85-99`) fires when an incoming row's id matches an existing
@@ -542,7 +577,11 @@ unchanged (or absent) git SHA raises exactly this error on the second
 call. The error's own message calls this "either a hash collision (rare)
 or a coding bug at the call site" (`store.py:670-671`); in practice, in a
 repo with git tracking enabled, the far more common trigger is editing
-code without committing.
+code without committing. `payload_hash` (via `function_source` in the
+payload) is what catches a body change that happens to keep the same
+output for a given input; `_skip_write_or_raise` preserves this by
+comparing full normalized payloads, not just the identity columns
+`(function_name, output_hash, canonical_data_hash, ...)`.
 
 **MATCH is weaker than it looks.** `audit_block`
 (`audit_report.py:224-296`) treats *any* number found anywhere in the
@@ -696,12 +735,21 @@ doesn't stop them. Number matching is pattern-based, so treat a DRIFT as
 
 Beyond that, found while tracing the code for this document:
 
-- The computation id is not purely content-addressed once a
-  `data_files`-declared argument is involved: a file's resolved absolute
-  path and mtime are part of the hashed input, not just its content (see
-  "Design decisions" above). Moving a repository, or a fresh clone with a
-  different mtime, can produce new rows instead of collapsing onto
-  existing ones, even though the file's bytes are identical.
+- A `data_files`-declared argument's computation id is content-addressed
+  only, by design and (since the fix described in "Design decisions"
+  above) in the code: `normalize_for_hash` strips a `canonical_file`
+  descriptor's `path`, `name`, `size`, and `mtime` before hashing, so a
+  moved repository, a fresh clone with a different mtime, or a file
+  renamed but not re-encoded collapses onto the existing row instead of
+  minting a new one. What this does *not* do: `normalize_for_hash` only
+  walks dict, list, tuple (including namedtuple), and plain `set` -
+  the containers `serialize._to_jsonable` actually decomposes. A
+  `canonical_file` descriptor hidden inside a dataclass field, a
+  `frozenset`, or a generic object's `__dict__` is not normalized before
+  hashing (`inputs.py:158-213`), so its path/mtime would still affect
+  the id in that case. `collect_data_hashes`, which builds
+  `canonical_data_hash` for audit purposes, does walk those additional
+  shapes; only the identity-hashing path is narrower.
 - `audit-report`'s MATCH status checks whether a number appears anywhere
   in the linked payload or claim text, not that it appears in the
   specific field the sentence is about. Only `--expect` assertions check

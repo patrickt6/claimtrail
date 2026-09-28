@@ -680,6 +680,28 @@ class Store:
                     [(comp.id, k, str(v)) for k, v in comp.tags.items()],
                 )
 
+    def get_computation_exact(self, comp_id: str) -> Computation | None:
+        """Look up a computation by its exact, full id.
+
+        Unlike :meth:`get_computation`, this never falls back to a
+        prefix (``LIKE``) match. Callers that are about to write a row
+        under a specific id (the collision-check path in
+        :mod:`claimtrail.tracking`) need to know whether *that exact
+        id* is already taken, not whether some unrelated id happens to
+        start with the same characters.
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM computations WHERE id = ?", (comp_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            tag_rows = conn.execute(
+                "SELECT key, value FROM tags WHERE computation_id = ?", (row["id"],)
+            ).fetchall()
+        tags = {r["key"]: r["value"] for r in tag_rows}
+        return _row_to_computation(row, tags)
+
     def get_computation(self, comp_id: str) -> Computation | None:
         with self._connect() as conn:
             row = conn.execute(

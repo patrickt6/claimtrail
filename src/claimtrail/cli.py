@@ -18,6 +18,7 @@ from .audit_report import (
 )
 from .claims import check_claims, claim as record_claim, export_latex
 from .properties import Property, PropertyResult
+from .inputs import normalize_for_hash
 from .serialize import hash_value
 from .store import (
     PayloadTamperedError,
@@ -649,12 +650,18 @@ def _check_id_drift(store: Store, comp) -> str | None:
     except FileNotFoundError:
         return None
     if payload.get("external") is True:
-        recomputed_input_hash = hash_value(payload.get("inputs", {}))
+        recomputed_input_hash = hash_value(
+            normalize_for_hash(payload.get("inputs", {}))
+        )
     elif "args" in payload or "kwargs" in payload:
-        recomputed_input_hash = hash_value({
+        # Same normalization @tracked applies before hashing: a
+        # canonical_file() descriptor's path/mtime must not affect the
+        # recomputed hash, or every data_files row would show spurious
+        # ID_DRIFT after this normalization was introduced.
+        recomputed_input_hash = hash_value(normalize_for_hash({
             "args": payload.get("args", []),
             "kwargs": payload.get("kwargs", {}),
-        })
+        }))
     else:
         # Payload shape unknown; cannot rehash safely.
         return None
