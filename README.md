@@ -3,9 +3,17 @@
 Every number in a report keeps a trail back to the computation that produced it.
 
 [![tests](https://github.com/patrickt6/claimtrail/actions/workflows/tests.yml/badge.svg)](https://github.com/patrickt6/claimtrail/actions/workflows/tests.yml)
+[![PyPI](https://img.shields.io/pypi/v/claimtrail.svg)](https://pypi.org/project/claimtrail/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+<p align="center">
+  <img src="docs/img/hero.png" alt="A drafted report on the left with each sentence tagged MATCH, DRIFT or UNBACKED, and the claimtrail audit-report output that produced those tags on the right" width="100%">
+</p>
+<p align="center"><sub>Output of <code>examples/lending-review</code> on synthetic data: one number drifted from its source and one never had a source.</sub></p>
 
 ```bash
 pip install claimtrail
+python examples/lending-review/run_demo.py   # from a clone: the run in the picture
 ```
 
 A pipeline computes a number, someone (often an AI assistant now) writes it
@@ -15,15 +23,17 @@ records each computation, links report sentences to those records, and checks
 the numbers still match. It's a SQLite file plus some JSON that you commit with
 your project.
 
+| Verdict | Meaning |
+|---|---|
+| `MATCH` | the sentence's numbers agree with the recorded run |
+| `DRIFT` | the sentence points at a run, but a number in it doesn't match |
+| `UNBACKED` | the sentence has a number and no record behind it |
+
+`audit-report` also reports `FAIL`, `MISSING` and `ORPHAN` for failed assertions and broken markers (see `src/claimtrail/audit_report.py`).
+
 It already caught one in my own work: the
 [hmda-audit](https://github.com/patrickt6/hmda-audit) README said 5 of its 14
 metrics were measured on the full file, and its own ledger says 6.
-
-The idea owes a lot to Mike's post on
-[agent civilizations](https://openrig.dev/blog/agent-civilizations): failures
-come from hand-offs where "the information for a good decision exists, it's
-just split between them, and nobody puts it together." A number in a report is
-that kind of hand-off.
 
 ## Use it
 
@@ -76,6 +86,12 @@ authentication. The log is hash-chained, which makes edits visible but doesn't
 stop them. Number matching is pattern-based, so treat a DRIFT as "go look".
 
 ## Background
+
+The idea owes a lot to Mike's post on
+[agent civilizations](https://openrig.dev/blog/agent-civilizations): failures
+come from hand-offs where "the information for a good decision exists, it's
+just split between them, and nobody puts it together." A number in a report is
+that kind of hand-off.
 
 claimtrail started as `qprov`, the provenance tool for my NSERC research on
 q-deformed numbers. `import qprov` and old `.qprov/` stores still work.
