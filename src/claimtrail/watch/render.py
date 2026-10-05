@@ -7,6 +7,7 @@ import json
 LABEL = {
     "traced": "from a tool output",
     "stated": "from your message",
+    "reported": "only in an agent report",
     "near": "close to a source, not equal",
     "unfound": "not found in any source",
 }
@@ -20,6 +21,7 @@ CSS = """
 a{color:inherit}.mono{font-family:"JetBrains Mono",ui-monospace,monospace}
 .n{border-radius:4px;padding:0 3px;font-weight:600;cursor:pointer}
 .n.traced{background:var(--okbg);color:var(--ok)}.n.stated{background:var(--stbg);color:var(--st)}
+.n.reported{background:#efe7fb;color:#6d3fc0}.pill.reported{background:#efe7fb;color:#6d3fc0}
 .n.near{background:var(--warnbg);color:var(--warn)}.n.unfound{background:var(--badbg);color:var(--bad)}
 .n.sel{outline:2px solid currentColor}
 .doc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:28px 32px;white-space:pre-wrap;
@@ -57,7 +59,7 @@ def doc_fragment(text: str, hits: list[dict]) -> str:
 
 def pills(summary: dict) -> str:
     parts = []
-    for k in ("traced", "stated", "near", "unfound"):
+    for k in ("traced", "stated", "reported", "near", "unfound"):
         if summary.get(k):
             parts.append(f'<span class="pill {k}">{summary[k]} {LABEL[k]}</span>')
     return '<div class="pills">' + "".join(parts) + "</div>"
@@ -97,7 +99,7 @@ function showSource(i){
   const el=document.querySelector('.n[data-i="'+i+'"]'); if(el) el.classList.add('sel');
   const s=INFO[i], box=document.getElementById('src');
   if(!s){return}
-  const label={traced:'From a tool output',stated:'From your message',near:'Close to a source, not equal',unfound:'Not found in any source'}[s.status];
+  const label={traced:'From a tool output',stated:'From your message',reported:'Only in an agent report (another model wrote it)',near:'Close to a source, not equal',unfound:'Not found in any source'}[s.status];
   if(!s.snippet){box.innerHTML='<h3>'+label+'</h3><div class="meta">Line '+s.line+'. No tool output or message in this work contains '+s.raw+
     '. That does not make it false: it may have been worked out without a tool, or come from somewhere not recorded.</div>';return}
   const near=s.status==='near'?'<div class="meta">The source says '+s.source_value+', the document says '+s.raw+'.</div>':'';
@@ -112,7 +114,7 @@ document.addEventListener('click',e=>{const n=e.target.closest('.n'); if(n) show
 def export_page(path: str, text: str, hits: list[dict], summary: dict, info: list) -> str:
     """One self-contained HTML file: the document with its numbers coloured and their sources."""
     n = summary["traced"] + summary["stated"]
-    total = n + summary["near"] + summary["unfound"]
+    total = n + summary.get("reported", 0) + summary["near"] + summary["unfound"]
     return f"""<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(path.rsplit('/', 1)[-1])}</title>{FONTS}<style>{CSS}
 .wrap{{max-width:1180px;margin:0 auto;padding:28px 16px;display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:24px;align-items:start}}

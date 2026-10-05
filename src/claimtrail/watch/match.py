@@ -3,6 +3,7 @@
 Statuses:
   traced   the number is in a tool output (a command, a file read, a fetch)
   stated   the number is in something the user typed
+  reported the number is only in text another model wrote (a subagent report, a web summary)
   near     no exact source, but a source has a value within 5 percent
   unfound  no source has it. That means "not found", not "false"
   ignored  small integers (0 to 10), which match by chance too often
@@ -77,20 +78,20 @@ def check(conn, text: str, *, doc_path: str, cwd: str, session: str) -> list[Hit
             for v, neg_sid, off in table[lo:hi]:
                 sid = -neg_sid
                 exact = abs(v - target) <= tol
-                rank = (0 if kinds[sid] == "tool" else 1) if exact else 2
+                rank = {"tool": 0, "user": 1, "report": 2}[kinds[sid]] if exact else 3
                 dist = abs(v - target)
                 if best is None or (rank, dist) < best[0]:
                     best = ((rank, dist), (sid, v, off))
         if best:
             rank = best[0][0]
-            hit.status = ("traced", "stated", "near")[rank]
+            hit.status = ("traced", "stated", "reported", "near")[rank]
             hit.source_id, hit.source_value, hit.source_offset = best[1]
         hits.append(hit)
     return hits
 
 
 def summary(hits: list[Hit]) -> dict:
-    out = {"traced": 0, "stated": 0, "near": 0, "unfound": 0, "ignored": 0}
+    out = {"traced": 0, "stated": 0, "reported": 0, "near": 0, "unfound": 0, "ignored": 0}
     for h in hits:
         out[h.status] += 1
     return out

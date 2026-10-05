@@ -16,6 +16,18 @@ from claimtrail.watch import db, match
 WRITE_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 DOC_EXT = {".md", ".markdown", ".html", ".htm", ".txt", ".tex", ".rst"}
 SKIP_TOOLS = {"TodoWrite", "AskUserQuestion", "ExitPlanMode", "EnterPlanMode", "ToolSearch", "Skill"}
+# Text another model wrote: a subagent report or a summarized web page. Kept, but never counts as traced.
+REPORT_TOOLS = {"Agent", "Task", "WebFetch", "WebSearch"}
+MARKER = ".claimtrail-watch"
+
+
+def opted_in(path: Path) -> bool:
+    """Feedback goes to the agent only under a folder that holds a .claimtrail-watch file,
+    and never for Claude's own config and memory."""
+    p = path.resolve()
+    if Path.home() / ".claude" in p.parents:
+        return False
+    return any((d / MARKER).exists() for d in p.parents)
 
 
 def _text(value) -> str:
@@ -64,9 +76,9 @@ def feedback(path: str, result: dict) -> str | None:
     more = f" and {len(bad) - 8} more" if len(bad) > 8 else ""
     return (
         f"claimtrail: {len(bad)} number(s) in {Path(path).name} do not match any tool output or user "
-        f"message from this work: {'; '.join(parts)}{more}. Not found does not mean false. For each one, "
-        "compute it with a tool, or confirm where it came from, or fix it. A number worked out without "
-        "a tool shows as not found."
+        f"message from this work: {'; '.join(parts)}{more}. Not found does not mean false. If you computed "
+        "one without a tool, compute it with a tool now. Do not delete or change a number only because it "
+        "is not found; tell the user which ones are open."
     )
 
 
@@ -86,7 +98,7 @@ def handle(data: dict) -> dict:
     if tool in WRITE_TOOLS:
         path = inp.get("file_path") or inp.get("notebook_path")
         result = check_doc(conn, path, session, cwd) if path else None
-        msg = feedback(path, result) if result else None
+        msg = feedback(path, result) if result and opted_in(Path(path)) else None
         if msg:
             return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": msg}}
         return {}
@@ -95,7 +107,8 @@ def handle(data: dict) -> dict:
     output = data["tool_output"] if "tool_output" in data else data.get("tool_response")
     if output is None:
         _log(f"no output field for {tool}; keys={sorted(data)}")
-    db.add_source(conn, session=session, cwd=cwd, kind="tool", tool=tool,
+    kind = "report" if tool in REPORT_TOOLS else "tool"
+    db.add_source(conn, session=session, cwd=cwd, kind=kind, tool=tool,
                   label=_label(tool, inp), text=_text(output))
     return {}
 

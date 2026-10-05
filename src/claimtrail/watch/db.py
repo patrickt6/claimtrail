@@ -6,8 +6,9 @@ Default ``~/.claimtrail/watch.sqlite``; override with ``CLAIMTRAIL_WATCH_DB``.
 from __future__ import annotations
 
 import os
+import random
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from claimtrail.quantities import extract_quantities
@@ -42,7 +43,21 @@ def connect() -> sqlite3.Connection:
     conn = sqlite3.connect(path, timeout=5)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    if random.random() < 0.02:
+        prune(conn)
     return conn
+
+
+KEEP_DAYS = 30
+
+
+def prune(conn) -> None:
+    """Drop sources and documents older than KEEP_DAYS. The matcher never looks further back."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=KEEP_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn.execute("DELETE FROM nums WHERE source_id IN (SELECT id FROM sources WHERE ts < ?)", (cutoff,))
+    conn.execute("DELETE FROM sources WHERE ts < ?", (cutoff,))
+    conn.execute("DELETE FROM docs WHERE ts < ?", (cutoff,))
+    conn.commit()
 
 
 def now() -> str:

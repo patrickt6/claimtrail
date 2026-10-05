@@ -14,7 +14,7 @@ def doc_html(conn, path: str) -> str | None:
     if not row:
         return None
     hits = json.loads(row["report"])
-    summary = {k: 0 for k in ("traced", "stated", "near", "unfound", "ignored")}
+    summary = {k: 0 for k in ("traced", "stated", "reported", "near", "unfound", "ignored")}
     for h in hits:
         summary[h["status"]] += 1
     return render.export_page(path, row["text"], hits, summary, render.source_info(conn, hits))
