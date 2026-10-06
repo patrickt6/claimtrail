@@ -1,6 +1,20 @@
 # Changelog
 
-## 0.5.2 (unreleased, pending approval)
+## 0.6.0 (unreleased)
+
+### Added
+
+- `claimtrail watch`: hooks for Claude Code that record every tool output and
+  user message to `~/.claimtrail/watch.sqlite`, then check each document an
+  agent writes (`.md`, `.html`, `.txt`, `.tex`, `.rst`) and mark each number
+  traced, stated, reported, near or unfound. A live local page shows the
+  results, and `claimtrail export` writes one HTML file to share.
+- `claimtrail mcp`: an MCP server over the same store, so Cursor, Claude
+  Desktop and other MCP clients can check documents and drafts, trace a single
+  number, and record the files they used. Install with `claimtrail[mcp]`.
+  Text an agent sends in counts as reported, never as traced.
+
+## 0.5.2 (unreleased, folded into 0.6.0)
 
 ### Fixed
 

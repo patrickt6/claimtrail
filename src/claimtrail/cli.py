@@ -935,6 +935,13 @@ def watch_cmd(port: int) -> None:
     serve(port)
 
 
+@main.command(name="mcp")
+def mcp_cmd() -> None:
+    """Run the MCP server on stdio (for Claude Code, Cursor, Claude Desktop). Needs claimtrail[mcp]."""
+    from claimtrail.watch.mcp_server import main as mcp_main
+    mcp_main()
+
+
 @main.command(name="export")
 @click.argument("path", type=click.Path(exists=True, dir_okay=False))
 @click.option("-o", "--out", type=click.Path(dir_okay=False), default=None, help="Default: PATH with .trail.html.")
