@@ -137,7 +137,10 @@ The tools:
 | `export_html` | writes the shareable HTML page |
 
 Without the hooks (Cursor, Claude Desktop), the agent calls `record_file` on
-the files it used. Text the agent sends in itself never makes a number traced,
+the files it used. Sources and documents match up by project folder: the
+nearest folder above the file with `.git` or `.claimtrail-watch` in it. If
+there isn't one, the agent passes `project_dir`. `check_text`,
+`trace_number` and `record_note` always need it. Text the agent sends in itself never makes a number traced,
 so it can't launder a made-up number by recording it first.
 
 Everything stays in `~/.claimtrail/watch.sqlite` on your machine, and rows
