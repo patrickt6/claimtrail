@@ -99,7 +99,13 @@ def check_document(path: str, project_dir: str | None = None) -> dict:
         if row and row["session"] != NO_SESSION:
             session, cwd = row["session"], row["cwd"]  # the hook saw it: keep the hook's scope
         else:
-            session, cwd = NO_SESSION, _project(p, project_dir)
+            session = NO_SESSION
+            try:
+                cwd = _project(p, project_dir)
+            except ValueError:
+                if not row:
+                    raise
+                cwd = row["cwd"]  # no project marker: reuse the folder an earlier check was given
         if p.suffix.lower() in hook.DOC_EXT:
             hook.check_doc(conn, str(p), session, cwd)
             hits = [match.Hit(**h) for h in json.loads(
@@ -178,10 +184,10 @@ def list_documents(limit: int = 20) -> list[dict]:
         conn.close()
 
 
-def export_html(path: str, out: str | None = None) -> dict:
+def export_html(path: str, out: str | None = None, project_dir: str | None = None) -> dict:
     """Write one self-contained HTML page of a checked document: every number coloured by
     status, and a click shows its source. Good to send to a reviewer."""
-    result = check_document(path)
+    result = check_document(path, project_dir=project_dir)
     if "error" in result:
         return result
     conn = db.connect()

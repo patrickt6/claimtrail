@@ -130,3 +130,32 @@ def test_server_speaks_mcp_over_stdio(store):
             return json.loads(res.content[0].text)
 
     assert anyio.run(run)["status"] == "traced"
+
+
+def test_export_and_recheck_keep_the_folder_of_an_earlier_check(store):
+    (store / "out.txt").write_text("mean 41.25\n")
+    ms.record_file(str(store / "out.txt"), project_dir=str(store))
+    doc = store / "r.md"
+    doc.write_text("Mean was 41.25.\n")
+    assert _status(ms.check_document(str(doc), project_dir=str(store))) == {"41.25": "traced"}
+    assert _status(ms.check_document(str(doc))) == {"41.25": "traced"}
+    assert ms.export_html(str(doc))["counts"]["traced"] == 1
+
+
+def test_export_takes_project_dir(store):
+    (store / "out.txt").write_text("mean 41.25\n")
+    ms.record_file(str(store / "out.txt"), project_dir=str(store))
+    doc = store / "r.md"
+    doc.write_text("Mean was 41.25.\n")
+    assert ms.export_html(str(doc), project_dir=str(store))["counts"]["traced"] == 1
+
+
+def test_a_wrong_project_dir_once_does_not_stick(store):
+    a, b = store / "a", store / "b"
+    (a / ".git").mkdir(parents=True), (b / ".git").mkdir(parents=True)
+    (a / "secret.json").write_text('{"x": 7731}')
+    ms.record_file(str(a / "secret.json"))
+    (b / "r.md").write_text("x is 7731.\n")
+    assert _status(ms.check_document(str(b / "r.md"), project_dir=str(a))) == {"7731": "traced"}
+    again = ms.check_document(str(b / "r.md"))
+    assert again["project_dir"] == str(b) and _status(again) == {"7731": "unfound"}
