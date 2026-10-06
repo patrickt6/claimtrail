@@ -1,6 +1,6 @@
 [project]
 name = "claimtrail"
-version = "0.5.2"
+version = "0.6.0"
 description = "Every number in a report keeps a trail back to the computation that produced it. Record, re-run, verify, audit."
 authors = [{name = "Patrick Taylor"}]
 readme = "README.md"
@@ -28,6 +28,7 @@ Issues = "https://github.com/patrickt6/claimtrail/issues"
 [project.optional-dependencies]
 dev = ["pytest>=7", "pytest-cov", "ruff"]
 gpu = ["pynvml>=11"]
+mcp = ["mcp>=1.20"]
 
 [project.scripts]
 claimtrail = "claimtrail.cli:main"

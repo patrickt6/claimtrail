@@ -920,5 +920,43 @@ def gc(yes: bool, dry_run: bool) -> None:
     click.echo(f"deleted {deleted} computations")
 
 
+@main.command(name="hook")
+def hook_cmd() -> None:
+    """Claude Code hook entry point (PostToolUse and UserPromptSubmit). Reads JSON on stdin."""
+    from claimtrail.watch.hook import main as hook_main
+    hook_main()
+
+
+@main.command(name="watch")
+@click.option("--port", default=7171, show_default=True)
+def watch_cmd(port: int) -> None:
+    """Open a live page of every document your agents wrote, with each number traced."""
+    from claimtrail.watch.server import serve
+    serve(port)
+
+
+@main.command(name="mcp")
+def mcp_cmd() -> None:
+    """Run the MCP server on stdio (for Claude Code, Cursor, Claude Desktop). Needs claimtrail[mcp]."""
+    from claimtrail.watch.mcp_server import main as mcp_main
+    mcp_main()
+
+
+@main.command(name="export")
+@click.argument("path", type=click.Path(exists=True, dir_okay=False))
+@click.option("-o", "--out", type=click.Path(dir_okay=False), default=None, help="Default: PATH with .trail.html.")
+def export_cmd(path: str, out: str | None) -> None:
+    """Write one self-contained HTML file of PATH with every number linked to its source."""
+    from claimtrail.watch import db, hook, server
+    conn = db.connect()
+    abspath = str(Path(path).resolve())
+    if not conn.execute("SELECT 1 FROM docs WHERE path = ?", (abspath,)).fetchone():
+        hook.check_doc(conn, abspath, session="", cwd=str(Path.cwd()))
+    page = server.doc_html(conn, abspath)
+    target = Path(out) if out else Path(path).with_suffix(".trail.html")
+    target.write_text(page, encoding="utf-8")
+    click.echo(f"wrote {target}")
+
+
 if __name__ == "__main__":
     main()

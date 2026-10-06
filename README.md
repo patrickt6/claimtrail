@@ -79,11 +79,81 @@ Try the full demo on synthetic data: `python examples/lending-review/run_demo.py
 
 For a module-by-module walkthrough of the architecture, data model, and the hmda-audit story, see [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md). For what backs that up (the test suite, property tests, mutation testing, and two real bugs they found), see [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
+## Check what your AI agent wrote
+
+The decorator above needs you to mark up your own pipeline. `claimtrail watch`
+needs nothing: it records every command output, file read and message in an
+agent session, then checks each number in the documents the agent writes.
+
+| Status | The number is... |
+|---|---|
+| traced | in a command output or a file that was read |
+| stated | in something you typed |
+| reported | only in text another model wrote (a subagent, a web summary) |
+| near | within 5% of a source, but not equal |
+| unfound | in no recorded source. That's "go look", not "false" |
+
+```bash
+pip install "claimtrail[mcp] @ git+https://github.com/patrickt6/claimtrail"
+```
+
+**Claude Code hooks.** Add this to `~/.claude/settings.json`. Use the full
+path from `which claimtrail` if it isn't on the PATH that Claude Code sees.
+
+```json
+"hooks": {
+  "PostToolUse":      [{"matcher": "*", "hooks": [{"type": "command", "command": "claimtrail hook"}]}],
+  "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "claimtrail hook"}]}]
+}
+```
+
+The hook only records by default. Put an empty `.claimtrail-watch` file in a
+project folder and the agent also gets told, right after it writes a document
+there, which numbers it couldn't trace. Run `claimtrail watch` for a live page
+at http://127.0.0.1:7171, and `claimtrail export report.md` for a single HTML
+file you can send to whoever signs off.
+
+**MCP server.** `claimtrail mcp` serves the same store to any MCP client.
+
+```bash
+claude mcp add claimtrail -- claimtrail mcp         # Claude Code
+```
+
+```json
+{"mcpServers": {"claimtrail": {"command": "claimtrail", "args": ["mcp"]}}}
+```
+
+That JSON goes in `~/.cursor/mcp.json` or `claude_desktop_config.json`.
+The tools:
+
+| Tool | What it does |
+|---|---|
+| `check_document` | checks every number in a file and shows it on the watch page |
+| `check_text` | checks a draft before it's written |
+| `trace_number` | finds the source of one number, like `86%` or `1,204` |
+| `record_file` | reads a data or results file and records it as a source |
+| `record_note` | records pasted text; it counts as reported, never traced |
+| `list_documents` | the documents checked so far |
+| `export_html` | writes the shareable HTML page |
+
+Without the hooks (Cursor, Claude Desktop), the agent calls `record_file` on
+the files it used. Text the agent sends in itself never makes a number traced,
+so it can't launder a made-up number by recording it first.
+
+Everything stays in `~/.claimtrail/watch.sqlite` on your machine, and rows
+older than 30 days get deleted. That file holds the raw text of tool outputs
+and messages, so delete the folder to wipe it.
+
 ## Limits
 
 Verifier names come from an env var or git config, so they're attribution, not
 authentication. The log is hash-chained, which makes edits visible but doesn't
 stop them. Number matching is pattern-based, so treat a DRIFT as "go look".
+
+For watch, "traced" means the number showed up in some output, not that the
+output was right. A number the agent prints with `echo`, or writes into a file
+and then reads back, counts as traced. Small integers (0 to 10) aren't checked
+because they match by chance.
 
 ## Background
 
