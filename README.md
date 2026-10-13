@@ -1,4 +1,10 @@
-# claimtrail
+<p align="center">
+  <img src="docs/banner.png" alt="claimtrail: every number in a report keeps a trail back to its source. Each sentence gets a verdict: MATCH, DRIFT or UNBACKED." width="800">
+</p>
+
+<p align="center">
+  <img src="docs/how-it-works.png" alt="How claimtrail works: record the run with @tracked, mark the sentence with a ct: marker, audit the report against the runs, get a MATCH, DRIFT or UNBACKED verdict" width="800">
+</p>
 
 Every number in a report keeps a trail back to the computation that produced it.
 
